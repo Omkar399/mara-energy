@@ -1,0 +1,388 @@
+# SLA-Smart Energy Arbitrage Platform - Final Implementation Plan (Complete with Multi-Site Extension)
+
+## Project Overview
+Build an AI-powered energy arbitrage system that **maximizes profit and energy utilization** across **10 geographically distributed sites** by dynamically allocating compute resources between Bitcoin mining and AI inference services offered through **tiered SLA agreements**. The system integrates weather conditions, hardware specialization, timezone considerations, and site-specific parameters to ensure **zero idle capacity** while optimizing across energy costs, cooling expenses, and market demand.
+
+## Core Innovation
+The platform treats compute resources as **multi-revenue assets** across multiple geographic locations, generating income through:
+- **Multi-site arbitrage**: Route workloads to optimal locations based on weather, energy prices, and timezone demand
+- **SLA-tiered pricing**: Premium (3.5x), Standard (2x), Flexible (1.2x), Spot (0.4x)
+- **Weather optimization**: 30-55% cooling cost reduction through climate-aware routing
+- **Timezone demand patterns**: Leverage global AI inference demand cycles
+- **Hardware specialization**: GPU vs ASIC optimization per site
+
+## MARA API Extension Strategy
+
+### Base MARA API (Single Site)
+From the documentation[1]:
+- **Site creation**: POST `/sites` returns API key and 1,000,000 MW power limit
+- **Pricing data**: GET `/prices` returns energy_price, hash_price, token_price (5-minute updates)
+- **Inventory data**: GET `/inventory` returns static machine specifications
+- **Allocation management**: PUT/GET `/machines` for dynamic resource allocation
+
+### Multi-Site Extension (Local Mock Implementation)
+Since MARA API provides single-site data, we'll extend it locally to simulate 10 distributed sites:
+
+```python
+MULTI_SITE_CONFIGURATION = {
+    "site_1_nordic": {
+        "location": {"lat": 64.1466, "lon": -21.9426, "timezone": "Atlantic/Reykjavik"},
+        "climate": {"avg_temp": 35, "cooling_efficiency": 0.95, "renewable_energy": 0.9},
+        "hardware_profile": {"gpu_ratio": 0.6, "asic_ratio": 0.4, "cooling_type": "free_air"},
+        "power_capacity": 1000000,
+        "energy_cost_multiplier": 0.6  # Cheap renewable energy
+    },
+    "site_2_canada": {
+        "location": {"lat": 49.2827, "lon": -123.1207, "timezone": "America/Vancouver"},
+        "climate": {"avg_temp": 50, "cooling_efficiency": 0.85, "renewable_energy": 0.7},
+        "hardware_profile": {"gpu_ratio": 0.7, "asic_ratio": 0.3, "cooling_type": "hydro_cooled"},
+        "power_capacity": 1000000,
+        "energy_cost_multiplier": 0.7
+    },
+    "site_3_norway": {
+        "location": {"lat": 59.9139, "lon": 10.7522, "timezone": "Europe/Oslo"},
+        "climate": {"avg_temp": 42, "cooling_efficiency": 0.9, "renewable_energy": 0.95},
+        "hardware_profile": {"gpu_ratio": 0.8, "asic_ratio": 0.2, "cooling_type": "immersion"},
+        "power_capacity": 1000000,
+        "energy_cost_multiplier": 0.5  # Cheapest renewable energy
+    },
+    "site_4_singapore": {
+        "location": {"lat": 1.3521, "lon": 103.8198, "timezone": "Asia/Singapore"},
+        "climate": {"avg_temp": 84, "cooling_efficiency": 0.4, "renewable_energy": 0.3},
+        "hardware_profile": {"gpu_ratio": 0.3, "asic_ratio": 0.7, "cooling_type": "advanced_ac"},
+        "power_capacity": 1000000,
+        "energy_cost_multiplier": 1.4  # Expensive energy, high cooling costs
+    },
+    "site_5_texas": {
+        "location": {"lat": 32.7767, "lon": -96.7970, "timezone": "America/Chicago"},
+        "climate": {"avg_temp": 75, "cooling_efficiency": 0.6, "renewable_energy": 0.4},
+        "hardware_profile": {"gpu_ratio": 0.5, "asic_ratio": 0.5, "cooling_type": "air_cooled"},
+        "power_capacity": 1000000,
+        "energy_cost_multiplier": 0.8
+    },
+    "site_6_ireland": {
+        "location": {"lat": 53.3498, "lon": -6.2603, "timezone": "Europe/Dublin"},
+        "climate": {"avg_temp": 52, "cooling_efficiency": 0.8, "renewable_energy": 0.6},
+        "hardware_profile": {"gpu_ratio": 0.6, "asic_ratio": 0.4, "cooling_type": "free_air"},
+        "power_capacity": 1000000,
+        "energy_cost_multiplier": 0.9
+    },
+    "site_7_japan": {
+        "location": {"lat": 35.6762, "lon": 139.6503, "timezone": "Asia/Tokyo"},
+        "climate": {"avg_temp": 68, "cooling_efficiency": 0.7, "renewable_energy": 0.2},
+        "hardware_profile": {"gpu_ratio": 0.8, "asic_ratio": 0.2, "cooling_type": "precision_ac"},
+        "power_capacity": 1000000,
+        "energy_cost_multiplier": 1.2  # High energy costs
+    },
+    "site_8_australia": {
+        "location": {"lat": -33.8688, "lon": 151.2093, "timezone": "Australia/Sydney"},
+        "climate": {"avg_temp": 72, "cooling_efficiency": 0.65, "renewable_energy": 0.5},
+        "hardware_profile": {"gpu_ratio": 0.4, "asic_ratio": 0.6, "cooling_type": "evaporative"},
+        "power_capacity": 1000000,
+        "energy_cost_multiplier": 1.0
+    },
+    "site_9_chile": {
+        "location": {"lat": -33.4489, "lon": -70.6693, "timezone": "America/Santiago"},
+        "climate": {"avg_temp": 60, "cooling_efficiency": 0.75, "renewable_energy": 0.8},
+        "hardware_profile": {"gpu_ratio": 0.5, "asic_ratio": 0.5, "cooling_type": "air_cooled"},
+        "power_capacity": 1000000,
+        "energy_cost_multiplier": 0.7
+    },
+    "site_10_germany": {
+        "location": {"lat": 52.5200, "lon": 13.4050, "timezone": "Europe/Berlin"},
+        "climate": {"avg_temp": 55, "cooling_efficiency": 0.8, "renewable_energy": 0.6},
+        "hardware_profile": {"gpu_ratio": 0.7, "asic_ratio": 0.3, "cooling_type": "district_cooling"},
+        "power_capacity": 1000000,
+        "energy_cost_multiplier": 1.1
+    }
+}
+```
+
+### Extended Pricing API Mock
+```python
+def generate_multi_site_pricing():
+    """Generate site-specific pricing based on location, timezone, and local conditions"""
+    base_mara_prices = get_mara_prices()  # Original MARA API call
+    
+    multi_site_prices = {}
+    for site_id, site_config in MULTI_SITE_CONFIGURATION.items():
+        # Adjust base prices based on site-specific factors
+        local_time = get_local_time(site_config["location"]["timezone"])
+        demand_multiplier = calculate_demand_multiplier(local_time)  # Higher during business hours
+        
+        multi_site_prices[site_id] = {
+            "energy_price": base_mara_prices["energy_price"] * site_config["energy_cost_multiplier"],
+            "hash_price": base_mara_prices["hash_price"] * demand_multiplier,
+            "token_price": base_mara_prices["token_price"] * demand_multiplier,
+            "cooling_factor": site_config["climate"]["cooling_efficiency"],
+            "local_time": local_time,
+            "timestamp": base_mara_prices["timestamp"]
+        }
+    
+    return multi_site_prices
+```
+
+### Extended Inventory API Mock
+```python
+def generate_multi_site_inventory():
+    """Extend MARA inventory to 10 sites with different hardware profiles"""
+    base_inventory = get_mara_inventory()  # Original MARA API call
+    
+    multi_site_inventory = {}
+    for site_id, site_config in MULTI_SITE_CONFIGURATION.items():
+        gpu_ratio = site_config["hardware_profile"]["gpu_ratio"]
+        asic_ratio = site_config["hardware_profile"]["asic_ratio"]
+        
+        # Scale inventory based on hardware profile
+        multi_site_inventory[site_id] = {
+            "inference": {
+                "gpu": {
+                    "power": base_inventory["inference"]["gpu"]["power"],
+                    "tokens": base_inventory["inference"]["gpu"]["tokens"],
+                    "available_capacity": int(site_config["power_capacity"] * gpu_ratio * 0.3)
+                },
+                "asic": {
+                    "power": base_inventory["inference"]["asic"]["power"],
+                    "tokens": base_inventory["inference"]["asic"]["tokens"],
+                    "available_capacity": int(site_config["power_capacity"] * asic_ratio * 0.4)
+                }
+            },
+            "miners": {
+                "air": {
+                    "hashrate": base_inventory["miners"]["air"]["hashrate"],
+                    "power": base_inventory["miners"]["air"]["power"],
+                    "available_capacity": int(site_config["power_capacity"] * 0.1)
+                },
+                "hydro": {
+                    "hashrate": base_inventory["miners"]["hydro"]["hashrate"],
+                    "power": base_inventory["miners"]["hydro"]["power"],
+                    "available_capacity": int(site_config["power_capacity"] * 0.1)
+                },
+                "immersion": {
+                    "hashrate": base_inventory["miners"]["immersion"]["hashrate"],
+                    "power": base_inventory["miners"]["immersion"]["power"],
+                    "available_capacity": int(site_config["power_capacity"] * 0.1)
+                }
+            },
+            "site_config": site_config
+        }
+    
+    return multi_site_inventory
+```
+
+## 6-Hour Implementation Timeline
+
+### Hour 1: Multi-Site Foundation & API Extension
+**Objectives:**
+- Extend MARA API to support 10 distributed sites
+- Build timezone-aware pricing and demand modeling
+- Implement site-specific hardware and climate parameters
+
+**Tasks:**
+1. Create single MARA site via API, save API key
+2. Build multi-site configuration with 10 geographic locations
+3. Implement timezone-aware demand modeling (business hours = higher AI demand)
+4. Create site-specific pricing adjustments based on local energy costs
+5. Build extended inventory system with hardware specialization per site
+6. Add weather simulation for each location with cooling efficiency calculations
+
+**Deliverables:**
+- 10-site configuration with unique characteristics
+- Timezone-aware demand and pricing models
+- Site-specific inventory and hardware profiles
+
+### Hour 2: Global SLA Framework with Geographic Optimization
+**Objectives:**
+- Implement SLA tiers with geographic routing capabilities
+- Build timezone-aware SLA demand patterns
+- Create site-specific service guarantees
+
+**Tasks:**
+1. Define global SLA tiers with geographic routing:
+   - **Premium SLA (99.9% uptime)**: Route to optimal sites, 3.5x pricing
+   - **Standard SLA (95% uptime)**: Regional routing flexibility, 2x pricing
+   - **Flexible SLA (90% uptime)**: Cost-optimized routing, 1.2x pricing
+   - **Spot SLA (best effort)**: Opportunistic routing, 0.4x pricing
+2. Implement timezone-based demand patterns:
+   - Asia-Pacific business hours: High AI inference demand
+   - European business hours: Balanced demand
+   - Americas business hours: Peak AI inference demand
+3. Create site-specific SLA capabilities based on hardware profiles
+4. Build geographic load balancing with latency considerations
+
+### Hour 3: Climate-Aware Multi-Site Optimization
+**Objectives:**
+- Implement weather-based routing across 10 sites
+- Build cooling cost optimization with geographic arbitrage
+- Create predictive allocation based on weather forecasts
+
+**Tasks:**
+1. Implement real-time weather simulation for all 10 sites
+2. Build cooling cost optimization:
+   - Route AI inference to coldest sites (Nordic, Canada, Norway)
+   - Route Bitcoin mining to moderate climate sites
+   - Avoid hot sites (Singapore, Texas) during peak temperatures
+3. Create climate-based arbitrage:
+   - Nordic sites: Premium AI inference (95% cooling efficiency)
+   - Temperate sites: Balanced workloads (70-80% efficiency)
+   - Hot sites: Mining-focused during cooler periods
+4. Add predictive weather routing using forecasts
+
+### Hour 4: Claude AI with Global Multi-Site Intelligence
+**Objectives:**
+- Integrate Claude for intelligent global resource allocation
+- Build comprehensive multi-site decision framework
+- Implement natural language reasoning for complex geographic decisions
+
+**Tasks:**
+1. Setup Claude API with global optimization prompts
+2. Build comprehensive decision framework considering:
+   - 10 sites with different timezone demand patterns
+   - Weather conditions and cooling efficiency across locations
+   - Hardware specialization per site (GPU vs ASIC ratios)
+   - SLA commitments and geographic routing requirements
+   - Energy costs and renewable energy availability
+   - Cross-site workload migration costs and latency
+
+**Claude Global Decision Framework:**
+```python
+def claude_global_optimizer(multi_site_data, global_sla_commitments):
+    prompt = f"""
+    You are managing a global network of 10 data centers with 10,000,000 MW total capacity:
+    
+    SITE CONDITIONS (Top 3 by efficiency):
+    - Nordic (Iceland): {multi_site_data['site_1_nordic']['current_temp']}°F, 95% cooling efficiency, 60% energy cost
+    - Norway: {multi_site_data['site_3_norway']['current_temp']}°F, 90% cooling efficiency, 50% energy cost  
+    - Canada: {multi_site_data['site_2_canada']['current_temp']}°F, 85% cooling efficiency, 70% energy cost
+    
+    TIMEZONE DEMAND PATTERNS:
+    - Asia-Pacific (Singapore, Japan, Australia): {calculate_apac_demand()} AI inference demand
+    - Europe (Norway, Ireland, Germany): {calculate_europe_demand()} AI inference demand
+    - Americas (Canada, Texas, Chile): {calculate_americas_demand()} AI inference demand
+    
+    GLOBAL SLA COMMITMENTS:
+    - Premium (99.9% uptime): {global_sla_commitments['premium']} MW across all sites
+    - Standard (95% uptime): {global_sla_commitments['standard']} MW with regional flexibility
+    - Flexible (90% uptime): {global_sla_commitments['flexible']} MW cost-optimized routing
+    - Spot (best effort): {global_sla_commitments['spot']} MW opportunistic allocation
+    
+    OPTIMIZATION OBJECTIVES:
+    1. Route Premium SLA to sites with best hardware + cooling efficiency
+    2. Follow the sun: Route AI inference to business hour timezones
+    3. Minimize cooling costs: Prefer cold sites for high-compute workloads
+    4. Maximize renewable energy usage where available
+    5. Maintain 100% utilization across all 10 sites
+    
+    Determine optimal global allocation strategy.
+    """
+```
+
+### Hour 5: Global Multi-Site Dashboard
+**Objectives:**
+- Build comprehensive global monitoring dashboard
+- Display multi-site optimization in real-time
+- Show geographic routing and performance metrics
+
+**Tasks:**
+1. Create Streamlit dashboard with global overview:
+   - **World Map View**: Real-time allocation across 10 sites with weather overlay
+   - **Timezone Demand Panel**: Follow-the-sun AI inference routing
+   - **Climate Optimization**: Cooling efficiency and cost impact per site
+   - **SLA Global Compliance**: Uptime tracking across geographic regions
+   - **Cross-Site Arbitrage**: Profit optimization through geographic routing
+2. Add predictive routing visualization based on weather forecasts
+3. Display Claude's global reasoning in natural language
+4. Create site-specific performance comparisons and efficiency rankings
+
+**Key Global Dashboard Metrics:**
+- **Global Revenue**: Total across all 10 sites with geographic breakdown
+- **Climate Arbitrage Savings**: Cooling cost reduction through optimal routing
+- **Timezone Optimization**: Revenue gains from follow-the-sun routing
+- **SLA Geographic Performance**: Uptime tracking per region
+- **Cross-Site Efficiency**: Utilization and profit per MW across locations
+- **Renewable Energy Usage**: Percentage of workloads on clean energy sites
+
+### Hour 6: Advanced Global Optimization & Demo Preparation
+**Objectives:**
+- Implement advanced multi-site features
+- Add cross-site workload migration
+- Prepare compelling global demo scenarios
+
+**Tasks:**
+1. Build advanced global features:
+   - Cross-site workload migration with latency costs
+   - Dynamic SLA pricing based on global demand patterns
+   - Renewable energy preference routing for ESG compliance
+   - Multi-site disaster recovery and failover
+2. Implement predictive global optimization:
+   - Weather forecast-driven preemptive routing
+   - Timezone demand prediction for proactive allocation
+   - Energy price forecasting across different markets
+3. Create compelling demo scenarios:
+   - Global weather event response (heat wave in Asia, cold snap in Europe)
+   - Follow-the-sun AI inference routing as business hours move globally
+   - Cross-site SLA failover during site maintenance
+   - Renewable energy optimization during peak solar/wind generation
+
+## Technical Architecture
+
+### Global System Components
+1. **Multi-Site MARA Extension**: 10-site pricing and inventory simulation
+2. **Global Weather Intelligence**: Real-time weather across all locations
+3. **Timezone Demand Predictor**: Business hour patterns and AI inference demand
+4. **Cross-Site Router**: Optimal workload placement with latency considerations
+5. **Global SLA Manager**: Multi-site uptime guarantees and geographic routing
+6. **Climate Arbitrage Engine**: Cooling cost optimization across sites
+7. **Claude Global Optimizer**: AI-powered multi-site decision making
+8. **Renewable Energy Tracker**: ESG-compliant routing preferences
+
+### Global Decision Flow (Every 5 Minutes)
+1. **Monitor**: Multi-site weather, timezone demand, energy prices across 10 locations
+2. **Analyze**: Calculate site-specific profits considering climate, timezone, and hardware
+3. **Route**: Determine optimal site placement for each SLA tier and workload type
+4. **Protect**: Ensure SLA commitments maintained across geographic regions
+5. **Optimize**: Claude determines global allocation strategy across all constraints
+6. **Migrate**: Execute cross-site workload movements with cost considerations
+7. **Track**: Monitor global performance, SLA compliance, and optimization success
+
+## Success Criteria & Demo Strategy
+
+### Global Performance Metrics
+- **Total Global Revenue**: 10,000,000 MW capacity across 10 sites
+- **Climate Arbitrage Savings**: 30-55% cooling cost reduction through optimal routing
+- **Timezone Optimization Gains**: Revenue increase from follow-the-sun routing
+- **Global SLA Compliance**: 99.9% Premium uptime across all geographic regions
+- **Renewable Energy Usage**: Percentage of workloads on clean energy sites
+- **Cross-Site Efficiency**: Optimal utilization across diverse climate and hardware profiles
+
+### Compelling Demo Highlights
+1. **Global Weather Response**: Show system routing workloads away from heat waves
+2. **Follow-the-Sun Routing**: Demonstrate AI inference following business hours globally
+3. **Climate Arbitrage**: Display cooling cost savings through Nordic site preference
+4. **Multi-Site SLA Protection**: Prove geographic redundancy maintains uptime
+5. **Renewable Energy Optimization**: Show preference for clean energy sites
+6. **Claude Global Reasoning**: Display complex multi-site decision explanations
+
+This implementation creates a **comprehensive global data center optimization platform** that demonstrates sophisticated multi-site resource management while addressing real-world constraints including weather, timezones, hardware specialization, and service commitments across 10 distributed locations.
+
+[1] https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/attachments/32192161/18e2333a-ffde-45b2-ab0b-2200d480202a/mara-api.md
+[2] https://www.thegreenreport.blog/articles/date-and-time-testing-across-multiple-time-zones/date-and-time-testing-across-multiple-time-zones.html
+[3] https://www.highviewapps.com/blog/how-to-manage-inventory-across-multiple-site/
+[4] https://community.glideapps.com/t/inventory-management-across-multiple-locations-for-1-product/63112
+[5] https://www.webgility.com/blog/multisite-inventory-management
+[6] https://serverfault.com/questions/308444/managing-multi-timezone-servers
+[7] https://api7.ai/blog/complete-guide-to-api-mocking
+[8] https://www.sheetgo.com/blog/inventory-templates/multiple-location-inventory-management/
+[9] https://barcloud.com/product/business-multisites/
+[10] https://stackoverflow.com/questions/66856253/how-do-i-get-consistent-data-across-different-timezones-if-i-am-saving-all-the-d
+[11] https://www.reddit.com/r/PostgreSQL/comments/1e3vnqr/best_way_to_store_event_dates_on_multiple_timezone/
+[12] https://forum.bubble.io/t/how-to-test-timezones-with-a-computer-in-another-timezone/15517
+[13] https://github.com/aryanshridhar/mock-browser-timezone
+[14] http://dateandtimesimulationsoftware.com/Softdate_date_and_time_simulation_software_applications_global_Time_Zone_Virtualization.html
+[15] https://katalon.com/resources-center/blog/what-is-api-mocking
+[16] https://how-to.aimms.com/Articles/362/362-multi-timezone.html
+[17] https://quickbooks.intuit.com/learn-support/en-us/other-questions/starting-inventory-for-multiple-sites/00/934535
+[18] https://smartcorp.com/inventory-optimization/simulation-based-multiechelon-inventory-management-software/
+[19] https://www.youtube.com/watch?v=6kFmnt4dab0
+[20] https://sell.amazon.com/programs/multi-location-inventory
+[21] https://www.dmtf.org/sites/default/files/svm12postersession_submission_5.pdf

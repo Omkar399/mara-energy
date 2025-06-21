@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SLA-Smart Energy Arbitrage Platform</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo">
+                    <i class="fas fa-bolt"></i>
+                    <h1>SLA-Smart Energy Arbitrage</h1>
+                </div>
+                <div class="header-controls">
+                    <button id="optimizeBtn" class="btn btn-success">
+                        <i class="fas fa-brain"></i>
+                        AI Optimize
+                    </button>
+                    <div class="status-indicator" id="systemStatus">
+                        <div class="status-dot online"></div>
+                        <span>Online</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Tab Navigation -->
+        <nav class="tab-navigation">
+            <div class="tab-container">
+                <button class="tab-button active" data-tab="dashboard">
+                    <i class="fas fa-tachometer-alt"></i>
+                    Dashboard
+                </button>
+                <button class="tab-button" data-tab="sla-management">
+                    <i class="fas fa-handshake"></i>
+                    SLA Management
+                </button>
+                <button class="tab-button" data-tab="maintenance-optimization">
+                    <i class="fas fa-tools"></i>
+                    Maintenance & Optimization
+                </button>
+                <button class="tab-button" data-tab="ai-intelligence">
+                    <i class="fas fa-brain"></i>
+                    AI Intelligence
+                </button>
+                <button class="tab-button" data-tab="analytics">
+                    <i class="fas fa-chart-line"></i>
+                    Analytics
+                </button>
+            </div>
+        </nav>
+
+        <!-- Main Dashboard Tab -->
+        <main class="main-content">
+            <div id="dashboard" class="tab-content active">
+                <!-- Global Metrics Row -->
+                <section class="metrics-grid">
+                    <div class="metric-card revenue">
+                        <div class="metric-icon">
+                            <i class="fas fa-dollar-sign"></i>
+                        </div>
+                        <div class="metric-content">
+                            <h3>Total Revenue</h3>
+                            <div class="metric-value" id="totalRevenue">$0</div>
+                            <div class="metric-change">+0% from optimization</div>
+                        </div>
+                    </div>
+
+                    <div class="metric-card power">
+                        <div class="metric-icon">
+                            <i class="fas fa-plug"></i>
+                        </div>
+                        <div class="metric-content">
+                            <h3>Power Usage</h3>
+                            <div class="metric-value" id="totalPower">0 MW</div>
+                            <div class="metric-change">Across 10 sites</div>
+                        </div>
+                    </div>
+
+                    <div class="metric-card efficiency">
+                        <div class="metric-icon">
+                            <i class="fas fa-snowflake"></i>
+                        </div>
+                        <div class="metric-content">
+                            <h3>Cooling Efficiency</h3>
+                            <div class="metric-value" id="coolingEfficiency">0%</div>
+                            <div class="metric-change">Climate arbitrage active</div>
+                        </div>
+                    </div>
+
+                    <div class="metric-card renewable">
+                        <div class="metric-icon">
+                            <i class="fas fa-leaf"></i>
+                        </div>
+                        <div class="metric-content">
+                            <h3>Renewable Energy</h3>
+                            <div class="metric-value" id="renewableEnergy">0%</div>
+                            <div class="metric-change">ESG compliance</div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- World Map and SLA Panel -->
+                <section class="map-sla-section">
+                    <div class="world-map-container">
+                        <h2><i class="fas fa-globe"></i> Global Data Centers</h2>
+                        <div id="worldMap" class="world-map"></div>
+                        <div class="map-legend">
+                            <div class="legend-item">
+                                <div class="legend-color high-efficiency"></div>
+                                <span>High Efficiency (>80%)</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color medium-efficiency"></div>
+                                <span>Medium Efficiency (60-80%)</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color low-efficiency"></div>
+                                <span>Low Efficiency (<60%)</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="sla-panel">
+                        <h2><i class="fas fa-handshake"></i> SLA Overview</h2>
+                        <div class="sla-tiers">
+                            <div class="sla-tier premium">
+                                <div class="sla-header">
+                                    <h3>Premium SLA</h3>
+                                    <span class="sla-multiplier">3.5x</span>
+                                </div>
+                                <div class="sla-details">
+                                    <div class="sla-uptime">99.9% Uptime</div>
+                                    <div class="sla-allocation" id="premiumAllocation">0 MW</div>
+                                </div>
+                            </div>
+
+                            <div class="sla-tier standard">
+                                <div class="sla-header">
+                                    <h3>Standard SLA</h3>
+                                    <span class="sla-multiplier">2.0x</span>
+                                </div>
+                                <div class="sla-details">
+                                    <div class="sla-uptime">95.0% Uptime</div>
+                                    <div class="sla-allocation" id="standardAllocation">0 MW</div>
+                                </div>
+                            </div>
+
+                            <div class="sla-tier flexible">
+                                <div class="sla-header">
+                                    <h3>Flexible SLA</h3>
+                                    <span class="sla-multiplier">1.2x</span>
+                                </div>
+                                <div class="sla-details">
+                                    <div class="sla-uptime">90.0% Uptime</div>
+                                    <div class="sla-allocation" id="flexibleAllocation">0 MW</div>
+                                </div>
+                            </div>
+
+                            <div class="sla-tier spot">
+                                <div class="sla-header">
+                                    <h3>Spot SLA</h3>
+                                    <span class="sla-multiplier">0.4x</span>
+                                </div>
+                                <div class="sla-details">
+                                    <div class="sla-uptime">Best Effort</div>
+                                    <div class="sla-allocation" id="spotAllocation">0 MW</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="sla-summary">
+                            <div class="summary-item">
+                                <span class="summary-label">Total Active SLAs:</span>
+                                <span class="summary-value" id="totalActiveSLAs">0</span>
+                            </div>
+                            <div class="summary-item">
+                                <span class="summary-label">Total Committed Power:</span>
+                                <span class="summary-value" id="totalCommittedPower">0 MW</span>
+                            </div>
+                            <div class="summary-item">
+                                <span class="summary-label">Avg Uptime Guarantee:</span>
+                                <span class="summary-value" id="avgUptimeGuarantee">0%</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Site Details and Claude AI -->
+                <section class="details-ai-section">
+                    <div class="sites-grid">
+                        <h2><i class="fas fa-server"></i> Site Performance</h2>
+                        <div id="sitesContainer" class="sites-container">
+                            <!-- Sites will be populated dynamically -->
+                        </div>
+                    </div>
+
+                    <div class="claude-panel">
+                        <h2><i class="fas fa-robot"></i> Claude AI Optimizer</h2>
+                        <div class="claude-content">
+                            <div class="claude-status">
+                                <div class="claude-indicator">
+                                    <div class="pulse-dot"></div>
+                                    <span>AI Analysis Active</span>
+                                </div>
+                            </div>
+                            <div class="claude-reasoning" id="claudeReasoning">
+                                <p>System ready for AI optimization. Click "AI Optimize" to see Claude's reasoning...</p>
+                            </div>
+                            <div class="claude-metrics">
+                                <div class="claude-metric">
+                                    <span class="metric-label">Climate Savings</span>
+                                    <span class="metric-value" id="climateSavings">$0</span>
+                                </div>
+                                <div class="claude-metric">
+                                    <span class="metric-label">Timezone Optimization</span>
+                                    <span class="metric-value" id="timezoneOptimization">$0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Real-time Activity Feed -->
+                <section class="activity-section">
+                    <div class="activity-feed">
+                        <h2><i class="fas fa-stream"></i> Live Activity Feed</h2>
+                        <div class="activity-controls">
+                            <button id="pauseActivityBtn" class="btn btn-small">
+                                <i class="fas fa-pause"></i> Pause
+                            </button>
+                            <button id="clearActivityBtn" class="btn btn-small">
+                                <i class="fas fa-trash"></i> Clear
+                            </button>
+                        </div>
+                        <div id="activityFeed" class="activity-list">
+                            <div class="activity-item welcome">
+                                <div class="activity-icon">
+                                    <i class="fas fa-rocket"></i>
+                                </div>
+                                <div class="activity-content">
+                                    <div class="activity-title">SLA-Smart Energy Arbitrage Platform</div>
+                                    <div class="activity-description">System initialized automatically. Ready for AI optimization and SLA management.</div>
+                                    <div class="activity-time">System startup</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- SLA Management Tab -->
+            <div id="sla-management" class="tab-content">
+                <section class="sla-management-section">
+                    <div class="sla-management-header">
+                        <h2><i class="fas fa-handshake"></i> SLA Management Dashboard</h2>
+                        <div class="sla-management-controls">
+                            <button id="refreshSLAsBtn" class="btn btn-secondary">
+                                <i class="fas fa-sync-alt"></i> Refresh
+                            </button>
+                            <button id="exportSLAsBtn" class="btn btn-secondary">
+                                <i class="fas fa-download"></i> Export
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Create New SLA Section -->
+                    <div class="sla-creator-section">
+                        <div class="sla-creator">
+                            <h2><i class="fas fa-plus-circle"></i> Create New SLA Agreement</h2>
+                            <div class="sla-request-form">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="companyName">Company/Client Name</label>
+                                        <input type="text" id="companyName" class="form-control" placeholder="e.g., ACME Corp, Tesla AI Division">
+                                        <small class="form-hint">Name of the company or client for this SLA</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="slaTypeSelect">SLA Tier</label>
+                                        <select id="slaTypeSelect" class="form-control">
+                                            <option value="premium">Premium (99.9% uptime, priority access)</option>
+                                            <option value="standard">Standard (95% uptime, guaranteed resources)</option>
+                                            <option value="flexible">Flexible (90% uptime, best effort)</option>
+                                            <option value="spot">Spot (variable pricing, no guarantees)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="computeType">Compute Type</label>
+                                        <select id="computeType" class="form-control">
+                                            <option value="gpu">AI Inference (GPU)</option>
+                                            <option value="asic">Bitcoin Mining (ASIC)</option>
+                                            <option value="mixed">Mixed Workload</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="computeUnits">Compute Units</label>
+                                        <input type="number" id="computeUnits" class="form-control" min="1" max="1000" placeholder="e.g., 50 GPUs or 100 ASICs">
+                                        <small class="form-hint">Number of compute units to reserve</small>
+                                    </div>
+                                </div>
+                                
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="durationHours">Duration (Hours)</label>
+                                        <input type="number" id="durationHours" class="form-control" min="1" max="8760" placeholder="e.g., 720 (30 days)">
+                                        <small class="form-hint">Contract duration in hours</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="preferredRegion">Preferred Region</label>
+                                        <select id="preferredRegion" class="form-control">
+                                            <option value="any">Any Available</option>
+                                            <option value="nordic">Nordic (Iceland/Norway)</option>
+                                            <option value="north_america">North America</option>
+                                            <option value="europe">Europe</option>
+                                            <option value="asia_pacific">Asia Pacific</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="sla-preview">
+                                    <h3><i class="fas fa-eye"></i> SLA Preview</h3>
+                                    <div class="preview-content">
+                                        <div class="preview-item">
+                                            <span class="preview-label">Company:</span>
+                                            <span class="preview-value" id="previewCompany">-</span>
+                                        </div>
+                                        <div class="preview-item">
+                                            <span class="preview-label">Tier:</span>
+                                            <span class="preview-value" id="previewTier">-</span>
+                                        </div>
+                                        <div class="preview-item">
+                                            <span class="preview-label">Compute:</span>
+                                            <span class="preview-value" id="previewCompute">-</span>
+                                        </div>
+                                        <div class="preview-item">
+                                            <span class="preview-label">Duration:</span>
+                                            <span class="preview-value" id="previewDuration">-</span>
+                                        </div>
+                                        <div class="preview-item">
+                                            <span class="preview-label">Uptime:</span>
+                                            <span class="preview-value" id="previewUptime">-</span>
+                                        </div>
+                                        <div class="preview-item">
+                                            <span class="preview-label">Est. Cost:</span>
+                                            <span class="preview-value" id="previewCost">-</span>
+                                        </div>
+                                        <div class="preview-item">
+                                            <span class="preview-label">Est. Power:</span>
+                                            <span class="preview-value" id="previewPower">-</span>
+                                        </div>
+                                        <div class="preview-item">
+                                            <span class="preview-label">Region:</span>
+                                            <span class="preview-value" id="previewRegion">-</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <button id="requestSlaBtn" class="btn btn-primary btn-large">
+                                    <i class="fas fa-paper-plane"></i> Create SLA Agreement
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SLA Statistics -->
+                    <div class="sla-stats-grid">
+                        <div class="sla-stat-card">
+                            <div class="stat-icon">
+                                <i class="fas fa-clipboard-list"></i>
+                            </div>
+                            <div class="stat-content">
+                                <h3>Total SLAs</h3>
+                                <div class="stat-value" id="totalSLAsCount">0</div>
+                                <div class="stat-change">Active contracts</div>
+                            </div>
+                        </div>
+                        <div class="sla-stat-card">
+                            <div class="stat-icon">
+                                <i class="fas fa-microchip"></i>
+                            </div>
+                            <div class="stat-content">
+                                <h3>Compute Units</h3>
+                                <div class="stat-value" id="totalComputeUnits">0</div>
+                                <div class="stat-change">Allocated resources</div>
+                            </div>
+                        </div>
+                        <div class="sla-stat-card">
+                            <div class="stat-icon">
+                                <i class="fas fa-money-bill-wave"></i>
+                            </div>
+                            <div class="stat-content">
+                                <h3>Revenue</h3>
+                                <div class="stat-value" id="totalSLARevenue">$0</div>
+                                <div class="stat-change">Estimated total</div>
+                            </div>
+                        </div>
+                        <div class="sla-stat-card">
+                            <div class="stat-icon">
+                                <i class="fas fa-chart-line"></i>
+                            </div>
+                            <div class="stat-content">
+                                <h3>Avg Uptime</h3>
+                                <div class="stat-value" id="avgSLAUptime">0%</div>
+                                <div class="stat-change">Performance metric</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SLA Filters -->
+                    <div class="sla-filters">
+                        <div class="filter-group">
+                            <label for="tierFilter">Filter by Tier:</label>
+                            <select id="tierFilter">
+                                <option value="all">All Tiers</option>
+                                <option value="premium">Premium</option>
+                                <option value="standard">Standard</option>
+                                <option value="flexible">Flexible</option>
+                                <option value="spot">Spot</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label for="computeFilter">Filter by Compute:</label>
+                            <select id="computeFilter">
+                                <option value="all">All Types</option>
+                                <option value="gpu">GPU</option>
+                                <option value="asic">ASIC</option>
+                                <option value="mixed">Mixed</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label for="statusFilter">Filter by Status:</label>
+                            <select id="statusFilter">
+                                <option value="active">Active Only</option>
+                                <option value="all">All Status</option>
+                                <option value="expired">Expired</option>
+                                <option value="terminated">Terminated</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- SLA Table -->
+                    <div class="sla-table-container">
+                        <table class="sla-table">
+                            <thead>
+                                <tr>
+                                    <th>SLA ID</th>
+                                    <th>Company</th>
+                                    <th>Tier</th>
+                                    <th>Compute Type</th>
+                                    <th>Units</th>
+                                    <th>Site</th>
+                                    <th>Duration</th>
+                                    <th>Revenue</th>
+                                    <th>Status</th>
+                                    <th>Created</th>
+                                    <th>Expires</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="slaTableBody">
+                                <!-- SLA rows will be populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- SLA Details Modal -->
+                    <div id="slaDetailsModal" class="modal hidden">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h3>SLA Details</h3>
+                                <button class="modal-close" id="closeSLAModal">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+                            <div class="modal-body" id="slaDetailsContent">
+                                <!-- SLA details will be populated dynamically -->
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Maintenance & Optimization Tab -->
+            <div id="maintenance-optimization" class="tab-content">
+                <section class="maintenance-optimization-section">
+                    <div class="maintenance-optimization-header">
+                        <h2><i class="fas fa-tools"></i> AI-Powered Maintenance & Hardware Optimization</h2>
+                        <div class="maintenance-controls">
+                            <button id="predictMaintenanceBtn" class="btn btn-warning">
+                                <i class="fas fa-crystal-ball"></i> Predict Maintenance
+                            </button>
+                            <button id="optimizeHardwareBtn" class="btn btn-success">
+                                <i class="fas fa-rocket"></i> Optimize Hardware
+                            </button>
+                            <button id="scheduleMaintenanceBtn" class="btn btn-primary">
+                                <i class="fas fa-calendar-alt"></i> Schedule Maintenance
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Predictive Maintenance Overview -->
+                    <div class="maintenance-overview">
+                        <div class="maintenance-metrics">
+                            <div class="maintenance-metric-card critical">
+                                <div class="metric-icon">
+                                    <i class="fas fa-exclamation-triangle"></i>
+                                </div>
+                                <div class="metric-content">
+                                    <h3>Critical Hardware</h3>
+                                    <div class="metric-value" id="criticalHardwareCount">0</div>
+                                    <div class="metric-change">Requires immediate attention</div>
+                                </div>
+                            </div>
+
+                            <div class="maintenance-metric-card warning">
+                                <div class="metric-icon">
+                                    <i class="fas fa-clock"></i>
+                                </div>
+                                <div class="metric-content">
+                                    <h3>Maintenance Due</h3>
+                                    <div class="metric-value" id="maintenanceDueCount">0</div>
+                                    <div class="metric-change">Within 30 days</div>
+                                </div>
+                            </div>
+
+                            <div class="maintenance-metric-card savings">
+                                <div class="metric-icon">
+                                    <i class="fas fa-dollar-sign"></i>
+                                </div>
+                                <div class="metric-content">
+                                    <h3>Potential Savings</h3>
+                                    <div class="metric-value" id="potentialSavings">$0</div>
+                                    <div class="metric-change">From preventive maintenance</div>
+                                </div>
+                            </div>
+
+                            <div class="maintenance-metric-card health">
+                                <div class="metric-icon">
+                                    <i class="fas fa-heartbeat"></i>
+                                </div>
+                                <div class="metric-content">
+                                    <h3>Avg Health Score</h3>
+                                    <div class="metric-value" id="avgHealthScore">0%</div>
+                                    <div class="metric-change">Across all hardware</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Hardware Optimization Results -->
+                    <div class="optimization-results">
+                        <h3><i class="fas fa-rocket"></i> Hardware Optimization Results</h3>
+                        <div class="optimization-metrics">
+                            <div class="optimization-metric">
+                                <span class="metric-label">Performance Gain:</span>
+                                <span class="metric-value" id="performanceGain">0%</span>
+                            </div>
+                            <div class="optimization-metric">
+                                <span class="metric-label">Power Savings:</span>
+                                <span class="metric-value" id="powerSavings">0%</span>
+                            </div>
+                            <div class="optimization-metric">
+                                <span class="metric-label">Revenue Increase:</span>
+                                <span class="metric-value" id="revenueIncrease">$0</span>
+                            </div>
+                            <div class="optimization-metric">
+                                <span class="metric-label">Cost Savings:</span>
+                                <span class="metric-value" id="costSavings">$0</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Site Maintenance Status -->
+                    <div class="site-maintenance-grid">
+                        <h3><i class="fas fa-server"></i> Site Maintenance Status</h3>
+                        <div id="siteMaintenanceContainer" class="site-maintenance-container">
+                            <!-- Site maintenance cards will be populated dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- Maintenance Schedule -->
+                    <div class="maintenance-schedule-section">
+                        <h3><i class="fas fa-calendar-alt"></i> Recommended Maintenance Schedule</h3>
+                        <div id="maintenanceScheduleContainer" class="maintenance-schedule-container">
+                            <!-- Maintenance schedule will be populated dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- Hardware Optimization Details -->
+                    <div class="hardware-optimization-details">
+                        <h3><i class="fas fa-cogs"></i> Hardware Optimization Details</h3>
+                        <div id="hardwareOptimizationContainer" class="hardware-optimization-container">
+                            <!-- Hardware optimization details will be populated dynamically -->
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- AI Intelligence Tab -->
+            <div id="ai-intelligence" class="tab-content">
+                <section class="ai-intelligence-section">
+                    <!-- AI Header with Overall Health -->
+                    <div class="ai-header">
+                        <div class="health-score-card">
+                            <h2><i class="fas fa-heartbeat"></i> Site Health Score</h2>
+                            <div class="score-circle" id="overallHealthScore" data-score="0">0%</div>
+                            <span class="health-status" id="healthStatus">Analyzing...</span>
+                        </div>
+                        
+                        <div class="ai-metric-card">
+                            <h3><i class="fas fa-bolt"></i> Power Efficiency</h3>
+                            <div class="efficiency-meter">
+                                <span class="current" id="currentEfficiency">0%</span>
+                                <span class="target">Target: 90%</span>
+                            </div>
+                        </div>
+                        
+                        <div class="ai-metric-card">
+                            <h3><i class="fas fa-chart-line"></i> Revenue Potential</h3>
+                            <span class="additional-revenue" id="additionalRevenue">+$0/hour</span>
+                            <button class="optimize-btn" id="applyOptimizationsBtn">Apply AI Optimizations</button>
+                        </div>
+                    </div>
+
+                    <!-- Machine Health Matrix -->
+                    <div class="machine-health-section">
+                        <h3><i class="fas fa-server"></i> Hardware Health Matrix</h3>
+                        <div class="health-grid" id="machineHealthGrid">
+                            <!-- Machine health cards will be populated dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- Predictive Alerts -->
+                    <div class="predictive-alerts-section">
+                        <h3><i class="fas fa-exclamation-triangle"></i> Predictive Maintenance Alerts</h3>
+                        <div class="alert-list" id="predictiveAlertsList">
+                            <!-- Alerts will be populated dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- Real-time AI Optimization Panel -->
+                    <div class="ai-optimization-panel">
+                        <h3><i class="fas fa-brain"></i> AI Optimization Recommendations</h3>
+                        <div class="optimization-cards" id="aiOptimizationCards">
+                            <!-- Optimization cards will be populated dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- AI Performance Tracking -->
+                    <div class="ai-performance-section">
+                        <h3><i class="fas fa-chart-area"></i> AI Performance Tracking</h3>
+                        <div class="ai-charts-container">
+                            <div class="ai-chart">
+                                <h4>Health Trend</h4>
+                                <canvas id="healthTrendChart"></canvas>
+                            </div>
+                            <div class="ai-chart">
+                                <h4>Optimization Impact</h4>
+                                <canvas id="optimizationImpactChart"></canvas>
+                            </div>
+                            <div class="ai-chart">
+                                <h4>Failure Predictions</h4>
+                                <canvas id="predictionsChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Analytics Tab -->
+            <div id="analytics" class="tab-content">
+                <section class="charts-section">
+                    <div class="chart-container">
+                        <h2><i class="fas fa-chart-line"></i> Revenue Optimization</h2>
+                        <canvas id="revenueChart"></canvas>
+                    </div>
+                    
+                    <div class="chart-container">
+                        <h2><i class="fas fa-thermometer-half"></i> Climate Efficiency</h2>
+                        <canvas id="efficiencyChart"></canvas>
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <!-- Loading Overlay -->
+        <div id="loadingOverlay" class="loading-overlay hidden">
+            <div class="loading-spinner">
+                <div class="spinner"></div>
+                <p>Optimizing global energy allocation...</p>
+            </div>
+        </div>
+
+        <!-- Notifications -->
+        <div id="notifications" class="notifications"></div>
+    </div>
+
+    <!-- SLA Details Modal -->
+    <div id="slaModal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>SLA Details</h3>
+                <button class="modal-close" onclick="closeSLAModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body" id="slaModalBody">
+                <!-- SLA details will be populated here -->
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html> 
