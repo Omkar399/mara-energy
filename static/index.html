@@ -155,17 +155,19 @@
                         </div>
                     </div>
 
-                    <div class="sla-request-form">
-                        <h3>Request SLA</h3>
-                        <select id="slaTypeSelect">
-                            <option value="premium">Premium SLA</option>
-                            <option value="standard">Standard SLA</option>
-                            <option value="flexible">Flexible SLA</option>
-                            <option value="spot">Spot SLA</option>
-                        </select>
-                        <input type="number" id="powerRequirement" placeholder="Power (MW)" min="1" max="100000">
-                        <input type="number" id="durationHours" placeholder="Duration (hours)" min="1" max="8760">
-                        <button id="requestSlaBtn" class="btn btn-primary">Request SLA</button>
+                    <div class="sla-summary">
+                        <div class="summary-item">
+                            <span class="summary-label">Total Active SLAs:</span>
+                            <span class="summary-value" id="totalActiveSLAs">0</span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-label">Total Committed Power:</span>
+                            <span class="summary-value" id="totalCommittedPower">0 MW</span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-label">Avg Uptime Guarantee:</span>
+                            <span class="summary-value" id="avgUptimeGuarantee">0%</span>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -201,6 +203,112 @@
                                 <span class="metric-value" id="timezoneOptimization">$0</span>
                             </div>
                         </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Real-time Activity Feed -->
+            <section class="activity-section">
+                <div class="activity-feed">
+                    <h2><i class="fas fa-stream"></i> Live Activity Feed</h2>
+                    <div class="activity-controls">
+                        <button id="pauseActivityBtn" class="btn btn-small">
+                            <i class="fas fa-pause"></i> Pause
+                        </button>
+                        <button id="clearActivityBtn" class="btn btn-small">
+                            <i class="fas fa-trash"></i> Clear
+                        </button>
+                    </div>
+                    <div id="activityFeed" class="activity-list">
+                        <div class="activity-item welcome">
+                            <div class="activity-icon">
+                                <i class="fas fa-rocket"></i>
+                            </div>
+                            <div class="activity-content">
+                                <div class="activity-title">Welcome to SLA-Smart Energy Arbitrage</div>
+                                <div class="activity-description">Initialize the system to start seeing real-time AI decisions</div>
+                                <div class="activity-time">Just now</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Interactive SLA Creator -->
+                <div class="sla-creator">
+                    <h2><i class="fas fa-plus-circle"></i> Create New SLA</h2>
+                    <div class="sla-request-form">
+                        <h3>Create SLA Request</h3>
+                        <div class="form-group">
+                            <label for="slaTypeSelect">SLA Tier</label>
+                            <select id="slaTypeSelect">
+                                <option value="premium">Premium (99.9% uptime, priority access)</option>
+                                <option value="standard">Standard (95% uptime, guaranteed resources)</option>
+                                <option value="flexible">Flexible (90% uptime, best effort)</option>
+                                <option value="spot">Spot (variable pricing, no guarantees)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="computeType">Compute Type</label>
+                            <select id="computeType">
+                                <option value="gpu">AI Inference (GPU)</option>
+                                <option value="asic">Bitcoin Mining (ASIC)</option>
+                                <option value="mixed">Mixed Workload</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="computeUnits">Compute Units</label>
+                            <input type="number" id="computeUnits" min="1" max="1000" placeholder="e.g., 50 GPUs or 100 ASICs">
+                            <small>Number of compute units to reserve</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="durationHours">Duration (Hours)</label>
+                            <input type="number" id="durationHours" min="1" max="8760" placeholder="e.g., 720 (30 days)">
+                            <small>Contract duration in hours</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="preferredRegion">Preferred Region</label>
+                            <select id="preferredRegion">
+                                <option value="any">Any Available</option>
+                                <option value="nordic">Nordic (Iceland/Norway)</option>
+                                <option value="north_america">North America</option>
+                                <option value="europe">Europe</option>
+                                <option value="asia_pacific">Asia Pacific</option>
+                            </select>
+                        </div>
+                        
+                        <div class="sla-preview">
+                            <h4>SLA Preview</h4>
+                            <div class="preview-grid">
+                                <div class="preview-item">
+                                    <span class="preview-label">Tier:</span>
+                                    <span class="preview-value" id="previewTier">-</span>
+                                </div>
+                                <div class="preview-item">
+                                    <span class="preview-label">Compute:</span>
+                                    <span class="preview-value" id="previewCompute">-</span>
+                                </div>
+                                <div class="preview-item">
+                                    <span class="preview-label">Duration:</span>
+                                    <span class="preview-value" id="previewDuration">-</span>
+                                </div>
+                                <div class="preview-item">
+                                    <span class="preview-label">Uptime:</span>
+                                    <span class="preview-value" id="previewUptime">-</span>
+                                </div>
+                                <div class="preview-item">
+                                    <span class="preview-label">Est. Cost:</span>
+                                    <span class="preview-value" id="previewCost">-</span>
+                                </div>
+                                <div class="preview-item">
+                                    <span class="preview-label">Est. Power:</span>
+                                    <span class="preview-value" id="previewPower">-</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <button id="requestSlaBtn" class="btn btn-primary">
+                            <i class="fas fa-paper-plane"></i> Create SLA Request
+                        </button>
                     </div>
                 </div>
             </section>

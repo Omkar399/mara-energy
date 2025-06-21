@@ -148,13 +148,15 @@ SLA_TIERS = {
 pricing_data = {}
 is_initialized = False
 site_hardware_inventory = {}  # Store distributed hardware inventory
+active_slas = {}  # Track active SLA workloads by site
 global_state = {
     "mara_inventory": None,
     "current_prices": None,
     "site_allocations": {},
     "sla_commitments": {"premium": 0, "standard": 0, "flexible": 0, "spot": 0},
     "total_revenue": 0,
-    "optimization_history": []
+    "optimization_history": [],
+    "active_slas": {}  # Track active SLAs with details
 }
 
 # Pydantic models
@@ -181,8 +183,10 @@ class GlobalOptimization(BaseModel):
 
 class SLARequest(BaseModel):
     tier: str
-    power_requirement: int
+    compute_type: str  # 'gpu', 'asic', 'mixed'
+    compute_units: int  # Number of compute units
     duration_hours: int
+    preferred_region: Optional[str] = None
 
 # Utility functions
 def get_local_time(timezone_str: str) -> str:
@@ -671,32 +675,66 @@ async def optimize_global_allocation():
 
 @app.post("/api/sla/request")
 async def request_sla(sla_request: SLARequest):
-    """Request SLA allocation"""
+    """Request compute-based SLA allocation"""
     if sla_request.tier not in SLA_TIERS:
         raise HTTPException(status_code=400, detail="Invalid SLA tier")
     
-    # Update SLA commitments
-    global_state["sla_commitments"][sla_request.tier] += sla_request.power_requirement
+    # Calculate estimated power consumption
+    power_per_unit = {
+        'gpu': 0.33,  # 330W per GPU
+        'asic': 3.0,  # 3kW per ASIC
+        'mixed': 1.5  # Average
+    }
     
-    # Find optimal site for this SLA tier
+    estimated_power_mw = (sla_request.compute_units * power_per_unit[sla_request.compute_type]) / 1000
+    
+    # Update SLA commitments (track by estimated power for compatibility)
+    global_state["sla_commitments"][sla_request.tier] += estimated_power_mw
+    
+    # Find optimal site for this SLA tier based on compute type and requirements
     optimal_site = None
     best_score = 0
     
     for site_id, site_config in MULTI_SITE_CONFIG.items():
-        # Score based on cooling efficiency and energy cost
-        score = (site_config["climate"]["cooling_efficiency"] * 0.7 + 
-                (1 - site_config["energy_cost_multiplier"]) * 0.3)
+        # Base score from cooling efficiency and energy cost
+        base_score = (site_config["climate"]["cooling_efficiency"] * 0.5 + 
+                     (1 - site_config["energy_cost_multiplier"]) * 0.3)
         
-        if score > best_score:
-            best_score = score
+        # Compute type preference scoring
+        hardware_profile = site_config["hardware_profile"]
+        if sla_request.compute_type == 'gpu':
+            compute_score = hardware_profile["gpu_ratio"] * 0.2
+        elif sla_request.compute_type == 'asic':
+            compute_score = hardware_profile["asic_ratio"] * 0.2
+        else:  # mixed
+            compute_score = (hardware_profile["gpu_ratio"] + hardware_profile["asic_ratio"]) * 0.1
+        
+        total_score = base_score + compute_score
+        
+        # Regional preference bonus
+        if sla_request.preferred_region:
+            region_mapping = {
+                'nordic': ['site_1_nordic', 'site_3_norway'],
+                'north_america': ['site_2_canada', 'site_5_texas'],
+                'europe': ['site_6_ireland', 'site_10_germany'],
+                'asia_pacific': ['site_4_singapore', 'site_7_japan', 'site_8_australia']
+            }
+            if sla_request.preferred_region in region_mapping and site_id in region_mapping[sla_request.preferred_region]:
+                total_score += 0.1
+        
+        if total_score > best_score:
+            best_score = total_score
             optimal_site = site_id
     
     return {
         "sla_tier": sla_request.tier,
-        "power_allocated": sla_request.power_requirement,
+        "compute_type": sla_request.compute_type,
+        "compute_units_allocated": sla_request.compute_units,
+        "estimated_power_mw": round(estimated_power_mw, 2),
         "optimal_site": optimal_site,
         "estimated_uptime": SLA_TIERS[sla_request.tier]["uptime"],
-        "price_multiplier": SLA_TIERS[sla_request.tier]["price_multiplier"]
+        "price_multiplier": SLA_TIERS[sla_request.tier]["price_multiplier"],
+        "duration_hours": sla_request.duration_hours
     }
 
 @app.get("/api/dashboard/metrics")
@@ -892,6 +930,88 @@ def calculate_global_metrics(sites: List[Dict]) -> Dict:
         "total_hardware": total_hardware,
         "active_sites": len(sites)
     }
+
+def calculate_site_workload_allocation(site_id: str, site_inventory: Dict) -> Dict:
+    """Calculate actual workload allocation based on active SLAs and idle mining"""
+    if not site_inventory:
+        return {"gpu_compute": 0, "asic_compute": 0, "air_miners": 0, "hydro_miners": 0, "immersion_miners": 0}
+    
+    # Get available hardware for this site
+    available_gpus = site_inventory.get("inference", {}).get("gpu", {}).get("available", 0)
+    available_asics = site_inventory.get("inference", {}).get("asic", {}).get("available", 0)
+    available_air_miners = site_inventory.get("miners", {}).get("air", {}).get("available", 0)
+    available_hydro_miners = site_inventory.get("miners", {}).get("hydro", {}).get("available", 0)
+    available_immersion_miners = site_inventory.get("miners", {}).get("immersion", {}).get("available", 0)
+    
+    # Initialize allocation
+    allocation = {
+        "gpu_compute": 0,
+        "asic_compute": 0, 
+        "air_miners": 0,
+        "hydro_miners": 0,
+        "immersion_miners": 0
+    }
+    
+    # First, allocate resources to active SLAs for this site
+    site_slas = global_state["active_slas"].get(site_id, [])
+    
+    for sla in site_slas:
+        compute_type = sla["compute_type"]
+        compute_units = sla["compute_units"]
+        
+        if compute_type == "gpu" and allocation["gpu_compute"] + compute_units <= available_gpus:
+            allocation["gpu_compute"] += compute_units
+        elif compute_type == "asic" and allocation["asic_compute"] + compute_units <= available_asics:
+            allocation["asic_compute"] += compute_units
+        elif compute_type == "mixed":
+            # Split mixed workload between GPU and ASIC
+            gpu_units = compute_units // 2
+            asic_units = compute_units - gpu_units
+            
+            if allocation["gpu_compute"] + gpu_units <= available_gpus:
+                allocation["gpu_compute"] += gpu_units
+            if allocation["asic_compute"] + asic_units <= available_asics:
+                allocation["asic_compute"] += asic_units
+    
+    # Second, use remaining hardware for Bitcoin mining (idle mining)
+    remaining_gpus = available_gpus - allocation["gpu_compute"]
+    remaining_asics = available_asics - allocation["asic_compute"]
+    
+    # Idle Bitcoin mining allocation - use remaining compute for mining
+    # Convert remaining inference hardware to mining equivalent
+    if remaining_gpus > 0:
+        # Use remaining GPUs for mining (less efficient but still profitable)
+        allocation["air_miners"] = min(available_air_miners, remaining_gpus // 2)  # 2 GPUs per air miner equivalent
+    
+    if remaining_asics > 0:
+        # Use remaining ASICs for mining (more efficient)
+        allocation["hydro_miners"] = min(available_hydro_miners, remaining_asics // 3)  # 3 ASICs per hydro miner equivalent
+    
+    # Always run some baseline mining on dedicated miners
+    allocation["air_miners"] = max(allocation["air_miners"], min(available_air_miners, available_air_miners // 2))
+    allocation["hydro_miners"] = max(allocation["hydro_miners"], min(available_hydro_miners, available_hydro_miners // 2))
+    allocation["immersion_miners"] = min(available_immersion_miners, available_immersion_miners // 3)  # Premium miners run less frequently
+    
+    return allocation
+
+def get_active_sla_summary(site_id: str) -> Dict:
+    """Get summary of active SLAs for a site"""
+    site_slas = global_state["active_slas"].get(site_id, [])
+    
+    summary = {
+        "total_slas": len(site_slas),
+        "total_compute_units": sum(sla["compute_units"] for sla in site_slas),
+        "sla_breakdown": {"premium": 0, "standard": 0, "flexible": 0, "spot": 0},
+        "compute_breakdown": {"gpu": 0, "asic": 0, "mixed": 0},
+        "total_revenue_from_slas": 0
+    }
+    
+    for sla in site_slas:
+        summary["sla_breakdown"][sla["tier"]] += sla["compute_units"]
+        summary["compute_breakdown"][sla["compute_type"]] += sla["compute_units"]
+        summary["total_revenue_from_slas"] += sla.get("estimated_revenue", 0)
+    
+    return summary
 
 if __name__ == "__main__":
     import uvicorn
