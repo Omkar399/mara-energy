@@ -1600,4 +1600,91 @@ body::before {
 .preview-item:nth-child(2) { animation-delay: 0.2s; }
 .preview-item:nth-child(3) { animation-delay: 0.3s; }
 .preview-item:nth-child(4) { animation-delay: 0.4s; }
-.preview-item:nth-child(5) { animation-delay: 0.5s; } 
+.preview-item:nth-child(5) { animation-delay: 0.5s; }
+
+/* Workload Status Indicators */
+.workload-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    margin-bottom: 8px;
+}
+
+.workload-status.ai-active {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(16, 185, 129, 0.05));
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    color: #10b981;
+}
+
+.workload-status.mining-active {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.05));
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    color: #f59e0b;
+}
+
+.workload-status.idle {
+    background: linear-gradient(135deg, rgba(107, 114, 128, 0.15), rgba(107, 114, 128, 0.05));
+    border: 1px solid rgba(107, 114, 128, 0.3);
+    color: #6b7280;
+}
+
+.workload-status i {
+    font-size: 1rem;
+}
+
+/* Allocation Breakdown */
+.allocation-breakdown {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.allocation-breakdown h4 {
+    margin: 0 0 12px 0;
+    font-size: 0.9rem;
+    color: #cbd5e1;
+    font-weight: 600;
+}
+
+.allocation-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.allocation-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 8px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.allocation-label {
+    font-size: 0.8rem;
+    color: #94a3b8;
+}
+
+.allocation-value {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #f1f5f9;
+}
+
+/* Site card enhancements */
+.site-card {
+    transition: all 0.3s ease;
+}
+
+.site-card:hover .allocation-breakdown {
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 6px;
+    padding: 12px;
+    margin: 16px -12px -12px -12px;
+} 

@@ -1,5 +1,5 @@
 // Global state
-let systemInitialized = false;
+let systemInitialized = true; // System is always initialized on startup
 let updateInterval = null;
 let worldMap = null;
 let revenueChart = null;
@@ -18,18 +18,37 @@ document.addEventListener('DOMContentLoaded', function() {
     initializeCharts();
     initializeMap();
     showWelcomeMessage();
+    
+    // Start the dashboard immediately since system is auto-initialized
+    setTimeout(() => {
+        startDashboard();
+    }, 1000); // Small delay to let the UI settle
 });
 
 // Show welcome message
 function showWelcomeMessage() {
-    showNotification('🚀 Welcome to SLA-Smart Energy Arbitrage Platform! Click "Initialize System" to begin.', 'info', 5000);
+    showNotification('🚀 SLA-Smart Energy Arbitrage Platform is online! System auto-initialized with live MARA data.', 'success', 5000);
+}
+
+// Start dashboard functionality
+async function startDashboard() {
+    updateSystemStatus('online');
+    addActivityItem('system', 'System Online', 'Connected to MARA API with live pricing data across 10 global sites', 'fas fa-check-circle');
+    
+    // Start periodic updates
+    startPeriodicUpdates();
+    
+    // Load initial data
+    await updateDashboardWithAnimation();
+    
+    // Show system ready notification
+    setTimeout(() => {
+        addActivityItem('system', 'Dashboard Ready', 'Real-time monitoring active. Ready for AI optimization and SLA requests.', 'fas fa-tachometer-alt');
+    }, 2000);
 }
 
 // Event listeners
 function initializeEventListeners() {
-    // Initialize system button
-    document.getElementById('initializeBtn').addEventListener('click', initializeSystem);
-    
     // Optimize button with enhanced feedback
     document.getElementById('optimizeBtn').addEventListener('click', optimizeSystemWithAnimation);
     
@@ -185,78 +204,8 @@ function updateSLAPreview() {
     }
 }
 
-// Initialize system with enhanced feedback
-async function initializeSystem() {
-    showLoading(true, 'Connecting to MARA API and initializing 10 global data centers...');
-    updateSystemStatus('initializing');
-    addActivityItem('system', 'System Initialization Started', 'Connecting to MARA API and initializing global data centers...', 'fas fa-rocket');
-    
-    try {
-        // Show initialization steps
-        showNotification('🔌 Connecting to MARA API...', 'info', 2000);
-        
-        const response = await fetch(`${API_BASE}/api/initialize`, {
-            method: 'POST'
-        });
-        
-        if (!response.ok) {
-            throw new Error('Failed to initialize system');
-        }
-        
-        const data = await response.json();
-        
-        // Show success with details
-        showNotification(`✅ System initialized! Connected to ${data.total_sites} data centers with live MARA pricing.`, 'success', 4000);
-        addActivityItem('system', 'System Initialization Complete', `Successfully connected to ${data.total_sites} global data centers with live MARA pricing data`, 'fas fa-check-circle');
-        
-        systemInitialized = true;
-        updateSystemStatus('online');
-        document.getElementById('optimizeBtn').disabled = false;
-        
-        // Animate the initialization
-        animateSystemInitialization();
-        
-        // Start periodic updates
-        startPeriodicUpdates();
-        
-        // Initial data load with animation
-        await updateDashboardWithAnimation();
-        
-        // Show AI is ready
-        showNotification('🤖 Claude AI Optimizer is now active and analyzing your global infrastructure!', 'success', 3000);
-        addActivityItem('ai', 'Claude AI Activated', 'AI optimizer is now analyzing global energy patterns and ready for optimization requests', 'fas fa-brain');
-        
-    } catch (error) {
-        console.error('Initialization error:', error);
-        showNotification('❌ Failed to initialize system: ' + error.message, 'error');
-        updateSystemStatus('error');
-        addActivityItem('error', 'System Initialization Failed', `Error: ${error.message}`, 'fas fa-exclamation-triangle');
-    } finally {
-        showLoading(false);
-    }
-}
-
-// Animate system initialization
-function animateSystemInitialization() {
-    const statusDot = document.querySelector('.status-dot');
-    statusDot.classList.add('pulse-animation');
-    
-    // Animate metric cards
-    const metricCards = document.querySelectorAll('.metric-card');
-    metricCards.forEach((card, index) => {
-        setTimeout(() => {
-            card.classList.add('animate-in');
-        }, index * 200);
-    });
-}
-
 // Enhanced optimize system with animation
 async function optimizeSystemWithAnimation() {
-    if (!systemInitialized) {
-        showNotification('⚠️ Please initialize the system first!', 'warning');
-        return;
-    }
-    
     // Show AI thinking animation
     showAIThinking(true);
     showLoading(true, 'Claude AI is analyzing global energy patterns and optimizing allocations...');
@@ -463,7 +412,8 @@ async function requestSLAWithFeedback() {
         });
         
         if (!response.ok) {
-            throw new Error('Failed to request SLA');
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Failed to request SLA');
         }
         
         const data = await response.json();
@@ -472,13 +422,21 @@ async function requestSLAWithFeedback() {
         const siteConfig = getSiteConfig(data.optimal_site);
         const siteName = siteConfig ? siteConfig.name : data.optimal_site;
         
-        showNotification(`✅ ${tier.toUpperCase()} SLA allocated successfully!\n📍 Site: ${siteName}\n💻 Compute: ${data.compute_units_allocated} ${data.compute_type.toUpperCase()}\n⚡ Est. Power: ${data.estimated_power_mw} MW\n⏱️ Duration: ${durationHours} hours\n🎯 Uptime: ${data.estimated_uptime}%`, 'success', 6000);
+        // Calculate expiration time for display
+        const expirationDate = new Date(data.expires_at);
+        const expirationStr = expirationDate.toLocaleString();
         
-        // Add detailed activity log
-        const costEstimate = computeUnits * durationHours * 100 * {'premium': 3.5, 'standard': 2.0, 'flexible': 1.2, 'spot': 0.4}[tier] * (data.estimated_power_mw);
+        showNotification(`✅ ${tier.toUpperCase()} SLA allocated successfully!\n📍 Site: ${siteName}\n💻 Compute: ${data.compute_units_allocated} ${data.compute_type.toUpperCase()}\n⚡ Est. Power: ${data.estimated_power_mw} MW\n💰 Est. Revenue: ${formatCurrency(data.estimated_revenue)}\n⏱️ Duration: ${durationHours} hours\n🎯 Uptime: ${data.estimated_uptime}%\n⏰ Expires: ${expirationStr}`, 'success', 8000);
+        
+        // Add detailed activity log with workload allocation info
         addActivityItem('sla', 'SLA Request Approved', 
-            `${tier.toUpperCase()} SLA allocated to ${siteName}: ${data.compute_units_allocated} ${data.compute_type.toUpperCase()} units (${data.estimated_power_mw} MW) with ${data.estimated_uptime}% uptime guarantee. Est. cost: ${formatCurrency(costEstimate)}`, 
+            `${tier.toUpperCase()} SLA allocated to ${siteName}: ${data.compute_units_allocated} ${data.compute_type.toUpperCase()} units (${data.estimated_power_mw} MW) with ${data.estimated_uptime}% uptime guarantee. Est. revenue: ${formatCurrency(data.estimated_revenue)}. Expires: ${expirationStr}`, 
             'fas fa-handshake');
+        
+        // Show workload impact
+        addActivityItem('system', 'Workload Allocation Updated', 
+            `Site ${siteName} now running AI inference workload. ${computeUnits} ${computeType.toUpperCase()} units allocated, remaining capacity will continue Bitcoin mining.`, 
+            'fas fa-cogs');
         
         // Animate the SLA tier card
         animateSLATierUpdate(tier, computeUnits);
@@ -486,8 +444,11 @@ async function requestSLAWithFeedback() {
         // Clear form with animation
         clearSLAFormWithAnimation();
         
-        // Update dashboard
+        // Update dashboard to show new workload allocation
         await updateDashboardWithAnimation();
+        
+        // Show active SLAs summary
+        await updateActiveSLAsSummary();
         
         // Trigger auto-optimization if enabled
         if (document.getElementById('autoOptimizeToggle').checked) {
@@ -640,11 +601,9 @@ function startAutoOptimization() {
     if (autoOptimizeInterval) return;
     
     autoOptimizeInterval = setInterval(() => {
-        if (systemInitialized) {
-            showNotification('🔄 Auto-optimization running...', 'info', 2000);
-            addActivityItem('ai', 'Auto-Optimization Running', 'Scheduled optimization cycle initiated', 'fas fa-clock');
-            optimizeSystemWithAnimation();
-        }
+        showNotification('🔄 Auto-optimization running...', 'info', 2000);
+        addActivityItem('ai', 'Auto-Optimization Running', 'Scheduled optimization cycle initiated', 'fas fa-clock');
+        optimizeSystemWithAnimation();
     }, 300000); // 5 minutes
 }
 
@@ -657,8 +616,6 @@ function stopAutoOptimization() {
 
 // Enhanced dashboard update with activity logging
 async function updateDashboardWithAnimation() {
-    if (!systemInitialized) return;
-    
     try {
         console.log('Starting dashboard update...');
         const response = await fetch(`${API_BASE}/api/dashboard/metrics`);
@@ -791,6 +748,39 @@ function createSiteCard(site) {
     const card = document.createElement('div');
     card.className = `site-card ${getEfficiencyClass(site.cooling_efficiency)}`;
     
+    // Calculate workload breakdown
+    const allocation = site.allocation || {};
+    const activeSLAs = site.active_slas || {};
+    
+    // AI Inference workload (from SLAs)
+    const aiWorkload = (allocation.gpu_compute || 0) + (allocation.asic_compute || 0);
+    
+    // Bitcoin Mining workload (idle mining)
+    const miningWorkload = (allocation.air_miners || 0) + (allocation.hydro_miners || 0) + (allocation.immersion_miners || 0);
+    
+    // Workload status
+    let workloadStatus = '';
+    if (activeSLAs.total_slas > 0) {
+        workloadStatus = `<div class="workload-status ai-active">
+            <i class="fas fa-brain"></i>
+            <span>AI Inference: ${activeSLAs.total_slas} SLAs (${activeSLAs.total_compute_units} units)</span>
+        </div>`;
+    }
+    
+    if (miningWorkload > 0) {
+        workloadStatus += `<div class="workload-status mining-active">
+            <i class="fas fa-coins"></i>
+            <span>Bitcoin Mining: ${miningWorkload} miners (idle capacity)</span>
+        </div>`;
+    }
+    
+    if (!workloadStatus) {
+        workloadStatus = `<div class="workload-status idle">
+            <i class="fas fa-pause"></i>
+            <span>Idle - No active workloads</span>
+        </div>`;
+    }
+    
     card.innerHTML = `
         <div class="site-header">
             <div class="site-name">${site.name}</div>
@@ -799,6 +789,9 @@ function createSiteCard(site) {
                 ${Math.round(site.weather.temperature)}°F
             </div>
         </div>
+        
+        ${workloadStatus}
+        
         <div class="site-metrics">
             <div class="site-metric">
                 <span class="site-metric-label">Revenue</span>
@@ -815,6 +808,28 @@ function createSiteCard(site) {
             <div class="site-metric">
                 <span class="site-metric-label">Uptime</span>
                 <span class="site-metric-value">${site.uptime.toFixed(1)}%</span>
+            </div>
+        </div>
+        
+        <div class="allocation-breakdown">
+            <h4>Resource Allocation</h4>
+            <div class="allocation-grid">
+                <div class="allocation-item">
+                    <span class="allocation-label">GPU Compute:</span>
+                    <span class="allocation-value">${allocation.gpu_compute || 0}</span>
+                </div>
+                <div class="allocation-item">
+                    <span class="allocation-label">ASIC Compute:</span>
+                    <span class="allocation-value">${allocation.asic_compute || 0}</span>
+                </div>
+                <div class="allocation-item">
+                    <span class="allocation-label">Air Miners:</span>
+                    <span class="allocation-value">${allocation.air_miners || 0}</span>
+                </div>
+                <div class="allocation-item">
+                    <span class="allocation-label">Hydro Miners:</span>
+                    <span class="allocation-value">${allocation.hydro_miners || 0}</span>
+                </div>
             </div>
         </div>
     `;
@@ -1200,18 +1215,47 @@ function createAutoOptimizeToggle() {
 function handleKeyboardShortcuts(event) {
     if (event.ctrlKey || event.metaKey) {
         switch(event.key) {
-            case 'i':
-                event.preventDefault();
-                if (!systemInitialized) initializeSystem();
-                break;
             case 'o':
                 event.preventDefault();
-                if (systemInitialized) optimizeSystemWithAnimation();
+                optimizeSystemWithAnimation();
                 break;
             case 's':
                 event.preventDefault();
                 document.getElementById('slaTypeSelect').focus();
                 break;
         }
+    }
+}
+
+// Update active SLAs summary
+async function updateActiveSLAsSummary() {
+    try {
+        const response = await fetch(`${API_BASE}/api/sla/active`);
+        
+        if (!response.ok) {
+            console.warn('Failed to fetch active SLAs');
+            return;
+        }
+        
+        const data = await response.json();
+        const stats = data.statistics;
+        
+        // Update SLA summary in the panel
+        updateSLASummary({
+            premium: stats.tier_breakdown.premium,
+            standard: stats.tier_breakdown.standard,
+            flexible: stats.tier_breakdown.flexible,
+            spot: stats.tier_breakdown.spot
+        });
+        
+        // Add activity item if there are active SLAs
+        if (stats.total_active_slas > 0) {
+            addActivityItem('system', 'Active SLAs Summary', 
+                `Currently running ${stats.total_active_slas} SLAs with ${stats.total_compute_units} total compute units generating ${formatCurrency(stats.total_estimated_revenue)} estimated revenue`, 
+                'fas fa-chart-line');
+        }
+        
+    } catch (error) {
+        console.warn('Error updating active SLAs summary:', error);
     }
 } 

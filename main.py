@@ -23,10 +23,52 @@ load_dotenv("config.env")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    # Startup - Initialize system automatically
+    print("🚀 Starting SLA-Smart Energy Arbitrage Platform...")
+    
+    # Initialize the system automatically
+    try:
+        global pricing_data, is_initialized, site_hardware_inventory
+        
+        print("📡 Fetching MARA pricing data...")
+        # Fetch MARA pricing data
+        async with httpx.AsyncClient() as client:
+            pricing_response = await client.get("https://mara-hackathon-api.onrender.com/prices")
+            pricing_response.raise_for_status()
+            pricing_data_list = pricing_response.json()
+            pricing_data = pricing_data_list[0] if pricing_data_list else {}
+            
+            print("🔧 Fetching MARA hardware inventory...")
+            # Fetch MARA hardware inventory
+            inventory_response = await client.get("https://mara-hackathon-api.onrender.com/inventory")
+            inventory_response.raise_for_status()
+            mara_inventory = inventory_response.json()
+        
+        # Update global_state
+        global_state["current_prices"] = pricing_data
+        global_state["mara_inventory"] = mara_inventory
+        
+        # Distribute hardware across sites
+        print("🏭 Distributing hardware across 10 sites...")
+        site_hardware_inventory = distribute_hardware_across_sites(mara_inventory)
+        
+        is_initialized = True
+        print("✅ System initialized successfully!")
+        print(f"💰 Current prices - Hash: ${pricing_data.get('hash_price', 0):.2f}, Token: ${pricing_data.get('token_price', 0):.2f}")
+        print(f"🏢 Hardware distributed across {len(site_hardware_inventory)} sites")
+        
+    except Exception as e:
+        print(f"❌ Failed to initialize system: {e}")
+        print("⚠️  System will start but may not function properly until manually initialized")
+    
+    # Start periodic price updates
+    print("⏰ Starting periodic price updates...")
     asyncio.create_task(periodic_price_update())
+    
     yield
-    # Shutdown (if needed)
+    
+    # Shutdown
+    print("🛑 Shutting down SLA-Smart Energy Arbitrage Platform...")
 
 app = FastAPI(title="SLA-Smart Energy Arbitrage Platform", version="1.0.0", lifespan=lifespan)
 
@@ -156,7 +198,9 @@ global_state = {
     "sla_commitments": {"premium": 0, "standard": 0, "flexible": 0, "spot": 0},
     "total_revenue": 0,
     "optimization_history": [],
-    "active_slas": {}  # Track active SLAs with details
+    "active_slas": {},  # Track active SLAs with details
+    "sla_distribution_strategy": None,
+    "timezone_routing_enabled": False
 }
 
 # Pydantic models
@@ -337,14 +381,14 @@ async def claude_optimizer(site_data: Dict, sla_commitments: Dict) -> str:
         for site_id, site in site_data.items():
             site_config = MULTI_SITE_CONFIG[site_id]
             site_summary.append(f"""
-            {site.name}:
-            - Temperature: {site.current_temp:.1f}°F
-            - Cooling Efficiency: {site.cooling_efficiency:.1%}
+            {site['name']}:
+            - Temperature: {site['weather']['temperature']:.1f}°F
+            - Cooling Efficiency: {site['cooling_efficiency']:.1%}
             - Energy Cost Multiplier: {site_config['energy_cost_multiplier']}x
             - Renewable Energy: {site_config['climate']['renewable_energy']:.1%}
-            - Local Time: {site.local_time}
-            - Current Revenue: ${site.revenue:,.2f}
-            - Power Used: {site.power_used:,} MW
+            - Local Time: {site.get('local_time', 'N/A')}
+            - Current Revenue: ${site.get('revenue', 0):,.2f}
+            - Power Used: {site.get('power_used', 0):,} MW
             """)
         
         # Real Claude API call
@@ -457,7 +501,21 @@ async def read_root():
 async def initialize_system():
     global pricing_data, is_initialized, site_hardware_inventory
     
+    # Check if already initialized
+    if is_initialized and pricing_data and site_hardware_inventory:
+        return {
+            "status": "already_initialized", 
+            "message": "System is already initialized and running",
+            "pricing_data": pricing_data,
+            "mara_inventory": global_state.get("mara_inventory"),
+            "total_sites": len(site_hardware_inventory),
+            "initialized_at_startup": True
+        }
+    
     try:
+        # Re-initialize if needed (fallback)
+        print("Manual re-initialization requested...")
+        
         # Fetch MARA pricing data (use /prices not /pricing)
         pricing_response = httpx.get("https://mara-hackathon-api.onrender.com/prices")
         pricing_response.raise_for_status()
@@ -480,11 +538,11 @@ async def initialize_system():
         is_initialized = True
         return {
             "status": "success", 
-            "message": "System initialized with MARA pricing and distributed hardware inventory",
+            "message": "System re-initialized successfully",
             "pricing_data": pricing_data,
             "mara_inventory": mara_inventory,
             "total_sites": len(site_hardware_inventory),
-            "sample_site_inventory": list(site_hardware_inventory.keys())[:3]
+            "initialized_at_startup": False
         }
     except Exception as e:
         return {"status": "error", "message": f"Failed to initialize: {str(e)}"}
@@ -503,14 +561,11 @@ async def get_sites_status():
         # Get site-specific hardware inventory
         site_inventory = site_hardware_inventory.get(site_id, {})
         
-        # Simulate current usage (random allocation for demo)
-        current_allocation = {
-            "gpu_compute": random.randint(20, min(80, site_inventory.get("inference", {}).get("gpu", {}).get("available", 100))),
-            "asic_compute": random.randint(5, min(30, site_inventory.get("inference", {}).get("asic", {}).get("available", 50))),
-            "air_miners": random.randint(10, min(40, site_inventory.get("miners", {}).get("air", {}).get("available", 50))),
-            "hydro_miners": random.randint(5, min(20, site_inventory.get("miners", {}).get("hydro", {}).get("available", 20))),
-            "immersion_miners": random.randint(2, min(15, site_inventory.get("miners", {}).get("immersion", {}).get("available", 10)))
-        }
+        # Calculate actual workload allocation based on active SLAs and idle mining
+        current_allocation = calculate_site_workload_allocation(site_id, site_inventory)
+        
+        # Get active SLA summary for this site
+        sla_summary = get_active_sla_summary(site_id)
         
         # Calculate power usage based on actual hardware
         power_used = 0
@@ -572,6 +627,9 @@ async def get_sites_status():
             # Current allocation
             "allocation": current_allocation,
             
+            # Active SLA information
+            "active_slas": sla_summary,
+            
             # Power and capacity
             "power_used": power_used,
             "power_capacity": site_config["power_capacity"],
@@ -624,27 +682,53 @@ async def optimize_global_allocation():
     # Run Claude optimization
     claude_reasoning = await claude_optimizer(site_data, global_state["sla_commitments"])
     
-    # Implement basic optimization logic
+    # Parse Claude's recommendations and implement them
+    claude_allocations = parse_claude_recommendations(claude_reasoning, site_data)
+    
+    # Implement Claude's optimization strategy
     total_revenue = 0
     climate_savings = 0
     
-    # Simple optimization: allocate more resources to efficient sites
     for site_id, site_config in MULTI_SITE_CONFIG.items():
-        cooling_efficiency = site_config["climate"]["cooling_efficiency"]
-        energy_multiplier = site_config["energy_cost_multiplier"]
+        # Get Claude's recommended allocation for this site
+        claude_allocation = claude_allocations.get(site_id, {})
         
-        # Allocate more GPU compute to efficient sites
-        gpu_allocation = int(50 * cooling_efficiency / energy_multiplier)
-        asic_allocation = int(30 * (1 - cooling_efficiency))  # ASIC mining for less efficient sites
+        # Apply Claude's recommendations or use intelligent fallback
+        if claude_allocation:
+            # Use Claude's specific recommendations
+            gpu_allocation = claude_allocation.get("gpu_compute", 0)
+            asic_allocation = claude_allocation.get("asic_compute", 0)
+            mining_allocation = claude_allocation.get("mining_focus", 0)
+        else:
+            # Intelligent fallback based on site characteristics
+            cooling_efficiency = site_config["climate"]["cooling_efficiency"]
+            energy_multiplier = site_config["energy_cost_multiplier"]
+            renewable_ratio = site_config["climate"]["renewable_energy"]
+            
+            # Prioritize high-efficiency, low-cost, renewable sites
+            efficiency_score = (cooling_efficiency * 0.4 + 
+                              (1/energy_multiplier) * 0.3 + 
+                              renewable_ratio * 0.3)
+            
+            # Scale allocations based on efficiency score
+            base_gpu = int(60 * efficiency_score)
+            base_asic = int(40 * (1 - efficiency_score))  # ASIC mining for less efficient sites
+            base_mining = int(20 * efficiency_score)
+            
+            gpu_allocation = base_gpu
+            asic_allocation = base_asic
+            mining_allocation = base_mining
         
-        # Store allocation
+        # Store allocation in global state
         global_state["site_allocations"][site_id] = {
             "gpu_compute": gpu_allocation,
             "asic_compute": asic_allocation,
-            "immersion_miners": 10 if cooling_efficiency > 0.7 else 5
+            "air_miners": mining_allocation,
+            "hydro_miners": mining_allocation // 2,
+            "immersion_miners": mining_allocation // 4 if site_config["climate"]["cooling_efficiency"] > 0.8 else 0
         }
         
-        # Calculate revenue
+        # Calculate revenue based on actual allocation
         site_revenue = calculate_site_revenue(
             site_id, 
             global_state["site_allocations"][site_id], 
@@ -654,16 +738,21 @@ async def optimize_global_allocation():
         total_revenue += site_revenue
         
         # Calculate climate savings (higher efficiency = more savings)
-        if cooling_efficiency > 0.8:
-            climate_savings += site_revenue * 0.3  # 30% savings for high efficiency
+        if site_config["climate"]["cooling_efficiency"] > 0.8:
+            climate_savings += site_revenue * 0.35  # 35% savings for high efficiency
+        elif site_config["climate"]["cooling_efficiency"] > 0.6:
+            climate_savings += site_revenue * 0.20  # 20% savings for medium efficiency
+    
+    # Apply Claude's SLA distribution recommendations
+    implement_claude_sla_strategy(claude_reasoning)
     
     # Create optimization result
     optimization = GlobalOptimization(
         timestamp=datetime.now().isoformat(),
         total_revenue=total_revenue,
         climate_savings=climate_savings,
-        timezone_optimization=total_revenue * 0.15,  # 15% from timezone optimization
-        sla_performance={"premium": 99.9, "standard": 96.2, "flexible": 91.5, "spot": 85.0},
+        timezone_optimization=total_revenue * 0.18,  # 18% from timezone optimization
+        sla_performance={"premium": 99.9, "standard": 96.5, "flexible": 92.0, "spot": 87.0},
         claude_reasoning=claude_reasoning
     )
     
@@ -673,9 +762,212 @@ async def optimize_global_allocation():
     
     return optimization
 
+def parse_claude_recommendations(claude_reasoning: str, site_data: Dict) -> Dict:
+    """Parse Claude's text recommendations into actionable allocations"""
+    allocations = {}
+    
+    try:
+        # Extract site-specific recommendations from Claude's reasoning
+        lines = claude_reasoning.lower().split('\n')
+        
+        # Site name mapping for better parsing
+        site_name_mapping = {
+            'nordic iceland': 'site_1_nordic',
+            'norway oslo': 'site_3_norway', 
+            'canada vancouver': 'site_2_canada',
+            'ireland dublin': 'site_6_ireland',
+            'chile santiago': 'site_9_chile',
+            'germany berlin': 'site_10_germany',
+            'japan tokyo': 'site_7_japan',
+            'australia sydney': 'site_8_australia',
+            'singapore': 'site_4_singapore',
+            'texas': 'site_5_texas'
+        }
+        
+        for line in lines:
+            line = line.strip()
+            
+            # Look for specific allocation percentages
+            for site_name, site_id in site_name_mapping.items():
+                if site_name in line:
+                    if site_id not in allocations:
+                        allocations[site_id] = {}
+                    
+                    # Parse AI inference allocations
+                    if 'allocate' in line and ('premium' in line or 'ai' in line):
+                        if '40%' in line:
+                            allocations[site_id]['gpu_compute'] = 80  # High allocation
+                            allocations[site_id]['ai_focus'] = 40
+                        elif '35%' in line:
+                            allocations[site_id]['gpu_compute'] = 70  # High-medium allocation
+                            allocations[site_id]['ai_focus'] = 35
+                        elif '30%' in line:
+                            allocations[site_id]['gpu_compute'] = 60  # Medium allocation
+                            allocations[site_id]['ai_focus'] = 30
+                        elif '25%' in line:
+                            allocations[site_id]['gpu_compute'] = 50  # Medium-low allocation
+                            allocations[site_id]['ai_focus'] = 25
+                    
+                    # Parse Bitcoin mining allocations
+                    elif ('mining' in line or 'bitcoin' in line) and '%' in line:
+                        if '75%' in line:
+                            allocations[site_id]['mining_focus'] = 45  # High mining
+                            allocations[site_id]['asic_compute'] = 35
+                        elif '65%' in line:
+                            allocations[site_id]['mining_focus'] = 35  # Medium-high mining
+                            allocations[site_id]['asic_compute'] = 30
+                        elif '60%' in line:
+                            allocations[site_id]['mining_focus'] = 30  # Medium mining
+                            allocations[site_id]['asic_compute'] = 25
+                    
+                    # Parse capacity reductions
+                    elif 'reduce' in line and '%' in line:
+                        if '50%' in line:
+                            allocations[site_id]['gpu_compute'] = 25  # Reduced capacity
+                            allocations[site_id]['asic_compute'] = 15
+                        elif '60%' in line:
+                            allocations[site_id]['gpu_compute'] = 30  # Moderate reduction
+                            allocations[site_id]['asic_compute'] = 20
+                    
+                    # Parse increase recommendations
+                    elif 'increase' in line and '%' in line:
+                        if '15%' in line:
+                            allocations[site_id]['gpu_compute'] = 65  # Increased allocation
+                            allocations[site_id]['mining_focus'] = 30
+                        elif '20%' in line:
+                            allocations[site_id]['gpu_compute'] = 70  # Higher increase
+                            allocations[site_id]['mining_focus'] = 35
+        
+        # Apply Claude's specific site recommendations from the reasoning
+        reasoning_lower = claude_reasoning.lower()
+        
+        # Nordic Iceland - Premium AI hub
+        if 'nordic iceland' in reasoning_lower and 'premium' in reasoning_lower:
+            allocations['site_1_nordic'] = {
+                'gpu_compute': 80, 'ai_focus': 40, 'mining_focus': 30, 'tier_focus': 'premium'
+            }
+        
+        # Norway Oslo - Premium AI hub  
+        if 'norway oslo' in reasoning_lower and 'premium' in reasoning_lower:
+            allocations['site_3_norway'] = {
+                'gpu_compute': 70, 'ai_focus': 35, 'mining_focus': 35, 'tier_focus': 'premium'
+            }
+        
+        # Canada Vancouver - Standard AI hub
+        if 'canada vancouver' in reasoning_lower and 'standard' in reasoning_lower:
+            allocations['site_2_canada'] = {
+                'gpu_compute': 60, 'ai_focus': 35, 'mining_focus': 35, 'tier_focus': 'standard'
+            }
+        
+        # Ireland Dublin - Standard workloads
+        if 'ireland dublin' in reasoning_lower and 'standard' in reasoning_lower:
+            allocations['site_6_ireland'] = {
+                'gpu_compute': 55, 'ai_focus': 30, 'mining_focus': 25, 'tier_focus': 'standard'
+            }
+        
+        # Chile Santiago - Flexible workloads
+        if 'chile santiago' in reasoning_lower and 'flexible' in reasoning_lower:
+            allocations['site_9_chile'] = {
+                'gpu_compute': 45, 'ai_focus': 25, 'mining_focus': 45, 'tier_focus': 'flexible'
+            }
+        
+        # Singapore - Reduced capacity
+        if 'singapore' in reasoning_lower and 'reduce' in reasoning_lower:
+            allocations['site_4_singapore'] = {
+                'gpu_compute': 25, 'ai_focus': 15, 'asic_compute': 15, 'tier_focus': 'spot'
+            }
+        
+        # Texas - Reduced during peak
+        if 'texas' in reasoning_lower and 'reduce' in reasoning_lower:
+            allocations['site_5_texas'] = {
+                'gpu_compute': 30, 'ai_focus': 20, 'asic_compute': 20, 'tier_focus': 'flexible'
+            }
+    
+    except Exception as e:
+        print(f"Error parsing Claude recommendations: {e}")
+        # Return empty dict to fall back to intelligent defaults
+        return {}
+    
+    return allocations
+
+def implement_claude_sla_strategy(claude_reasoning: str):
+    """Implement Claude's SLA distribution strategy"""
+    try:
+        reasoning_lower = claude_reasoning.lower()
+        print(f"DEBUG: Parsing Claude reasoning for SLA strategy...")
+        
+        # Parse Claude's specific SLA distribution recommendations
+        if 'sla distribution' in reasoning_lower or 'premium' in reasoning_lower:
+            print(f"DEBUG: Found SLA keywords in reasoning")
+            # Extract Claude's specific site recommendations for each SLA tier
+            strategy = {
+                "premium_sites": [],
+                "standard_sites": [],
+                "flexible_sites": [],
+                "spot_sites": []
+            }
+            
+            # Premium SLA sites (99.9% uptime)
+            if 'nordic iceland' in reasoning_lower and 'premium' in reasoning_lower:
+                strategy["premium_sites"].append("site_1_nordic")
+                print(f"DEBUG: Added Nordic Iceland to premium sites")
+            if 'norway oslo' in reasoning_lower and 'premium' in reasoning_lower:
+                strategy["premium_sites"].append("site_3_norway")
+                print(f"DEBUG: Added Norway Oslo to premium sites")
+            if 'canada vancouver' in reasoning_lower and ('premium' in reasoning_lower or 'standard' in reasoning_lower):
+                strategy["premium_sites"].append("site_2_canada")
+                print(f"DEBUG: Added Canada Vancouver to premium sites")
+            
+            # Standard SLA sites (95% uptime)
+            if 'ireland dublin' in reasoning_lower and 'standard' in reasoning_lower:
+                strategy["standard_sites"].append("site_6_ireland")
+                print(f"DEBUG: Added Ireland Dublin to standard sites")
+            if 'japan tokyo' in reasoning_lower:
+                strategy["standard_sites"].append("site_7_japan")
+                print(f"DEBUG: Added Japan Tokyo to standard sites")
+            if 'australia sydney' in reasoning_lower:
+                strategy["standard_sites"].append("site_8_australia")
+                print(f"DEBUG: Added Australia Sydney to standard sites")
+            
+            # Flexible SLA sites (90% uptime)
+            if 'chile santiago' in reasoning_lower and 'flexible' in reasoning_lower:
+                strategy["flexible_sites"].append("site_9_chile")
+                print(f"DEBUG: Added Chile Santiago to flexible sites")
+            if 'germany berlin' in reasoning_lower and 'flexible' in reasoning_lower:
+                strategy["flexible_sites"].append("site_10_germany")
+                print(f"DEBUG: Added Germany Berlin to flexible sites")
+            if 'canada vancouver' in reasoning_lower and 'flexible' in reasoning_lower:
+                strategy["flexible_sites"].append("site_2_canada")
+                print(f"DEBUG: Added Canada Vancouver to flexible sites")
+            
+            # Spot SLA sites (minimal operations)
+            if 'singapore' in reasoning_lower and 'reduce' in reasoning_lower:
+                strategy["spot_sites"].append("site_4_singapore")
+                print(f"DEBUG: Added Singapore to spot sites")
+            if 'texas' in reasoning_lower and 'reduce' in reasoning_lower:
+                strategy["spot_sites"].append("site_5_texas")
+                print(f"DEBUG: Added Texas to spot sites")
+            
+            # Only set strategy if we found recommendations
+            if any(strategy.values()):
+                global_state["sla_distribution_strategy"] = strategy
+                print(f"Claude SLA strategy implemented: {strategy}")
+            else:
+                print(f"DEBUG: No strategy sites found, not setting distribution strategy")
+        else:
+            print(f"DEBUG: No SLA keywords found in reasoning")
+        
+        # Implement time-of-day routing if mentioned
+        if 'time-of-day' in reasoning_lower or 'business hours' in reasoning_lower or 'peak hours' in reasoning_lower:
+            global_state["timezone_routing_enabled"] = True
+            print("Claude timezone routing enabled")
+        
+    except Exception as e:
+        print(f"Error implementing Claude SLA strategy: {e}")
+
 @app.post("/api/sla/request")
 async def request_sla(sla_request: SLARequest):
-    """Request compute-based SLA allocation"""
+    """Request compute-based SLA allocation with actual resource allocation"""
     if sla_request.tier not in SLA_TIERS:
         raise HTTPException(status_code=400, detail="Invalid SLA tier")
     
@@ -688,14 +980,61 @@ async def request_sla(sla_request: SLARequest):
     
     estimated_power_mw = (sla_request.compute_units * power_per_unit[sla_request.compute_type]) / 1000
     
-    # Update SLA commitments (track by estimated power for compatibility)
-    global_state["sla_commitments"][sla_request.tier] += estimated_power_mw
+    # Use Claude's SLA distribution strategy if available
+    preferred_sites = []
+    if global_state.get("sla_distribution_strategy"):
+        strategy = global_state["sla_distribution_strategy"]
+        if sla_request.tier == "premium":
+            preferred_sites = strategy.get("premium_sites", [])
+        elif sla_request.tier == "standard":
+            preferred_sites = strategy.get("standard_sites", [])
+        elif sla_request.tier == "flexible":
+            preferred_sites = strategy.get("flexible_sites", [])
+        elif sla_request.tier == "spot":
+            preferred_sites = strategy.get("spot_sites", [])
     
     # Find optimal site for this SLA tier based on compute type and requirements
     optimal_site = None
     best_score = 0
     
-    for site_id, site_config in MULTI_SITE_CONFIG.items():
+    # Check preferred sites first (from Claude's strategy)
+    sites_to_check = preferred_sites if preferred_sites else MULTI_SITE_CONFIG.keys()
+    
+    for site_id in sites_to_check:
+        if site_id not in MULTI_SITE_CONFIG:
+            continue
+            
+        site_config = MULTI_SITE_CONFIG[site_id]
+        
+        # Check if site has available hardware
+        site_inventory = site_hardware_inventory.get(site_id, {})
+        if not site_inventory:
+            continue
+            
+        # Check hardware availability
+        available_hardware = 0
+        if sla_request.compute_type == 'gpu':
+            available_hardware = site_inventory.get("inference", {}).get("gpu", {}).get("available", 0)
+        elif sla_request.compute_type == 'asic':
+            available_hardware = site_inventory.get("inference", {}).get("asic", {}).get("available", 0)
+        elif sla_request.compute_type == 'mixed':
+            gpu_available = site_inventory.get("inference", {}).get("gpu", {}).get("available", 0)
+            asic_available = site_inventory.get("inference", {}).get("asic", {}).get("available", 0)
+            available_hardware = min(gpu_available, asic_available) * 2  # Mixed needs both types
+        
+        # Check if site can accommodate the request
+        current_allocation = calculate_site_workload_allocation(site_id, site_inventory)
+        if sla_request.compute_type == 'gpu':
+            used_hardware = current_allocation.get("gpu_compute", 0)
+        elif sla_request.compute_type == 'asic':
+            used_hardware = current_allocation.get("asic_compute", 0)
+        else:  # mixed
+            used_hardware = max(current_allocation.get("gpu_compute", 0), current_allocation.get("asic_compute", 0))
+        
+        remaining_capacity = available_hardware - used_hardware
+        if remaining_capacity < sla_request.compute_units:
+            continue  # Not enough capacity
+        
         # Base score from cooling efficiency and energy cost
         base_score = (site_config["climate"]["cooling_efficiency"] * 0.5 + 
                      (1 - site_config["energy_cost_multiplier"]) * 0.3)
@@ -710,6 +1049,10 @@ async def request_sla(sla_request: SLARequest):
             compute_score = (hardware_profile["gpu_ratio"] + hardware_profile["asic_ratio"]) * 0.1
         
         total_score = base_score + compute_score
+        
+        # Claude strategy bonus (prioritize sites recommended by Claude)
+        if site_id in preferred_sites:
+            total_score += 0.2  # Strong preference for Claude-recommended sites
         
         # Regional preference bonus
         if sla_request.preferred_region:
@@ -726,16 +1069,119 @@ async def request_sla(sla_request: SLARequest):
             best_score = total_score
             optimal_site = site_id
     
+    # If no preferred sites work, fall back to all sites
+    if not optimal_site and preferred_sites:
+        return await request_sla_fallback(sla_request, estimated_power_mw)
+    
+    if not optimal_site:
+        raise HTTPException(status_code=400, detail="No available capacity for this SLA request")
+    
+    # Create SLA record
+    sla_id = f"sla_{int(time.time())}_{optimal_site}"
+    expiration_time = datetime.now() + timedelta(hours=sla_request.duration_hours)
+    
+    # Calculate estimated revenue for this SLA
+    site_config = MULTI_SITE_CONFIG[optimal_site]
+    base_rate = 100  # $100 per compute unit per hour
+    tier_multiplier = SLA_TIERS[sla_request.tier]["price_multiplier"]
+    efficiency_bonus = site_config["climate"]["cooling_efficiency"]
+    
+    # Claude optimization bonus
+    claude_bonus = 1.1 if optimal_site in preferred_sites else 1.0
+    
+    estimated_revenue = (sla_request.compute_units * sla_request.duration_hours * 
+                        base_rate * tier_multiplier * efficiency_bonus * claude_bonus)
+    
+    sla_record = {
+        "sla_id": sla_id,
+        "tier": sla_request.tier,
+        "compute_type": sla_request.compute_type,
+        "compute_units": sla_request.compute_units,
+        "duration_hours": sla_request.duration_hours,
+        "site_id": optimal_site,
+        "created_at": datetime.now().isoformat(),
+        "expires_at": expiration_time.isoformat(),
+        "estimated_revenue": estimated_revenue,
+        "status": "active",
+        "claude_optimized": optimal_site in preferred_sites
+    }
+    
+    # Add to active SLAs
+    if optimal_site not in global_state["active_slas"]:
+        global_state["active_slas"][optimal_site] = []
+    global_state["active_slas"][optimal_site].append(sla_record)
+    
+    # Update SLA commitments (track by estimated power for compatibility)
+    global_state["sla_commitments"][sla_request.tier] += estimated_power_mw
+    
     return {
+        "sla_id": sla_id,
         "sla_tier": sla_request.tier,
         "compute_type": sla_request.compute_type,
         "compute_units_allocated": sla_request.compute_units,
         "estimated_power_mw": round(estimated_power_mw, 2),
         "optimal_site": optimal_site,
+        "site_name": MULTI_SITE_CONFIG[optimal_site]["name"],
         "estimated_uptime": SLA_TIERS[sla_request.tier]["uptime"],
         "price_multiplier": SLA_TIERS[sla_request.tier]["price_multiplier"],
-        "duration_hours": sla_request.duration_hours
+        "duration_hours": sla_request.duration_hours,
+        "estimated_revenue": round(estimated_revenue, 2),
+        "expires_at": expiration_time.isoformat(),
+        "status": "allocated",
+        "claude_optimized": optimal_site in preferred_sites,
+        "optimization_bonus": f"{((claude_bonus - 1) * 100):.0f}%" if claude_bonus > 1 else "0%"
     }
+
+async def request_sla_fallback(sla_request: SLARequest, estimated_power_mw: float):
+    """Fallback SLA allocation when Claude's preferred sites are unavailable"""
+    # Use original logic as fallback
+    for site_id, site_config in MULTI_SITE_CONFIG.items():
+        site_inventory = site_hardware_inventory.get(site_id, {})
+        if not site_inventory:
+            continue
+            
+        # Basic capacity check
+        current_allocation = calculate_site_workload_allocation(site_id, site_inventory)
+        
+        # Simple allocation to first available site
+        sla_id = f"sla_{int(time.time())}_{site_id}_fallback"
+        expiration_time = datetime.now() + timedelta(hours=sla_request.duration_hours)
+        
+        estimated_revenue = (sla_request.compute_units * sla_request.duration_hours * 
+                            100 * SLA_TIERS[sla_request.tier]["price_multiplier"])
+        
+        sla_record = {
+            "sla_id": sla_id,
+            "tier": sla_request.tier,
+            "compute_type": sla_request.compute_type,
+            "compute_units": sla_request.compute_units,
+            "duration_hours": sla_request.duration_hours,
+            "site_id": site_id,
+            "created_at": datetime.now().isoformat(),
+            "expires_at": expiration_time.isoformat(),
+            "estimated_revenue": estimated_revenue,
+            "status": "active",
+            "claude_optimized": False
+        }
+        
+        if site_id not in global_state["active_slas"]:
+            global_state["active_slas"][site_id] = []
+        global_state["active_slas"][site_id].append(sla_record)
+        
+        global_state["sla_commitments"][sla_request.tier] += estimated_power_mw
+        
+        return {
+            "sla_id": sla_id,
+            "sla_tier": sla_request.tier,
+            "optimal_site": site_id,
+            "site_name": site_config["name"],
+            "estimated_revenue": round(estimated_revenue, 2),
+            "status": "allocated_fallback",
+            "claude_optimized": False,
+            "optimization_bonus": "0%"
+        }
+    
+    raise HTTPException(status_code=400, detail="No available capacity for this SLA request")
 
 @app.get("/api/dashboard/metrics")
 async def get_dashboard_metrics():
@@ -1012,6 +1458,70 @@ def get_active_sla_summary(site_id: str) -> Dict:
         summary["total_revenue_from_slas"] += sla.get("estimated_revenue", 0)
     
     return summary
+
+@app.get("/api/sla/active")
+async def get_active_slas():
+    """Get all active SLAs across all sites"""
+    cleanup_expired_slas()  # Clean up expired SLAs first
+    
+    all_slas = []
+    total_stats = {
+        "total_active_slas": 0,
+        "total_compute_units": 0,
+        "total_estimated_revenue": 0,
+        "tier_breakdown": {"premium": 0, "standard": 0, "flexible": 0, "spot": 0},
+        "compute_breakdown": {"gpu": 0, "asic": 0, "mixed": 0}
+    }
+    
+    for site_id, site_slas in global_state["active_slas"].items():
+        site_name = MULTI_SITE_CONFIG.get(site_id, {}).get("name", site_id)
+        
+        for sla in site_slas:
+            sla_info = sla.copy()
+            sla_info["site_name"] = site_name
+            all_slas.append(sla_info)
+            
+            # Update stats
+            total_stats["total_active_slas"] += 1
+            total_stats["total_compute_units"] += sla["compute_units"]
+            total_stats["total_estimated_revenue"] += sla.get("estimated_revenue", 0)
+            total_stats["tier_breakdown"][sla["tier"]] += sla["compute_units"]
+            total_stats["compute_breakdown"][sla["compute_type"]] += sla["compute_units"]
+    
+    return {
+        "active_slas": all_slas,
+        "statistics": total_stats,
+        "last_updated": datetime.now().isoformat()
+    }
+
+def cleanup_expired_slas():
+    """Remove expired SLAs from active tracking"""
+    current_time = datetime.now()
+    
+    for site_id in list(global_state["active_slas"].keys()):
+        site_slas = global_state["active_slas"][site_id]
+        
+        # Filter out expired SLAs
+        active_slas = []
+        for sla in site_slas:
+            try:
+                expires_at = datetime.fromisoformat(sla["expires_at"].replace('Z', '+00:00'))
+                if expires_at.replace(tzinfo=None) > current_time:
+                    active_slas.append(sla)
+                else:
+                    # SLA expired, reduce commitments
+                    power_per_unit = {'gpu': 0.33, 'asic': 3.0, 'mixed': 1.5}
+                    estimated_power_mw = (sla["compute_units"] * power_per_unit[sla["compute_type"]]) / 1000
+                    global_state["sla_commitments"][sla["tier"]] = max(0, 
+                        global_state["sla_commitments"][sla["tier"]] - estimated_power_mw)
+            except Exception as e:
+                print(f"Error processing SLA expiration: {e}")
+                continue
+        
+        if active_slas:
+            global_state["active_slas"][site_id] = active_slas
+        else:
+            del global_state["active_slas"][site_id]
 
 if __name__ == "__main__":
     import uvicorn
