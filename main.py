@@ -18,6 +18,9 @@ import time
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 
+# Import database module
+from database import sla_db
+
 # Load environment variables
 load_dotenv("config.env")
 
@@ -25,6 +28,11 @@ load_dotenv("config.env")
 async def lifespan(app: FastAPI):
     # Startup - Initialize system automatically
     print("🚀 Starting SLA-Smart Energy Arbitrage Platform...")
+    
+    # Initialize the database first
+    print("🗄️ Initializing SLA database...")
+    await sla_db.initialize()
+    print("✅ Database initialized successfully")
     
     # Initialize the system automatically
     try:
@@ -40,35 +48,42 @@ async def lifespan(app: FastAPI):
             
             print("🔧 Fetching MARA hardware inventory...")
             # Fetch MARA hardware inventory
-            inventory_response = await client.get("https://mara-hackathon-api.onrender.com/inventory")
-            inventory_response.raise_for_status()
-            mara_inventory = inventory_response.json()
-        
-        # Update global_state
-        global_state["current_prices"] = pricing_data
-        global_state["mara_inventory"] = mara_inventory
-        
-        # Distribute hardware across sites
-        print("🏭 Distributing hardware across 10 sites...")
-        site_hardware_inventory = distribute_hardware_across_sites(mara_inventory)
-        
-        is_initialized = True
-        print("✅ System initialized successfully!")
-        print(f"💰 Current prices - Hash: ${pricing_data.get('hash_price', 0):.2f}, Token: ${pricing_data.get('token_price', 0):.2f}")
-        print(f"🏢 Hardware distributed across {len(site_hardware_inventory)} sites")
-        
+            hardware_response = await client.get("https://mara-hackathon-api.onrender.com/inventory")
+            hardware_response.raise_for_status()
+            mara_inventory = hardware_response.json()
+            
+            print("🌍 Distributing hardware across 10 global sites...")
+            # Distribute hardware across sites
+            site_hardware_inventory = distribute_hardware_across_sites(mara_inventory)
+            
+            # Update global state
+            global_state["current_prices"] = pricing_data
+            global_state["mara_inventory"] = mara_inventory
+            
+            # Load existing SLAs from database
+            print("📊 Loading existing SLAs from database...")
+            await load_slas_from_database()
+            
+            is_initialized = True
+            print("✅ System initialized successfully with live MARA data")
+            print(f"📈 Current Bitcoin price: ${pricing_data.get('token_price', 'N/A')}")
+            print(f"⚡ Current hash price: ${pricing_data.get('hash_price', 'N/A')}")
+            print(f"🏭 Hardware distributed across {len(site_hardware_inventory)} sites")
+            
+            # Start background tasks
+            asyncio.create_task(periodic_price_update())
+            asyncio.create_task(periodic_sla_usage_tracking())
+            
     except Exception as e:
-        print(f"❌ Failed to initialize system: {e}")
-        print("⚠️  System will start but may not function properly until manually initialized")
-    
-    # Start periodic price updates
-    print("⏰ Starting periodic price updates...")
-    asyncio.create_task(periodic_price_update())
+        print(f"❌ System initialization failed: {e}")
+        is_initialized = False
     
     yield
     
     # Shutdown
     print("🛑 Shutting down SLA-Smart Energy Arbitrage Platform...")
+    # Save any pending data to database
+    await save_current_state_to_database()
 
 app = FastAPI(title="SLA-Smart Energy Arbitrage Platform", version="1.0.0", lifespan=lifespan)
 
@@ -1106,10 +1121,16 @@ async def request_sla(sla_request: SLARequest):
         "claude_optimized": optimal_site in preferred_sites
     }
     
-    # Add to active SLAs
+    # Add to active SLAs (in-memory for compatibility)
     if optimal_site not in global_state["active_slas"]:
         global_state["active_slas"][optimal_site] = []
     global_state["active_slas"][optimal_site].append(sla_record)
+    
+    # Save SLA to database
+    sla_data = sla_record.copy()
+    sla_data['site_name'] = MULTI_SITE_CONFIG[optimal_site]["name"]
+    sla_data['preferred_region'] = sla_request.preferred_region
+    await sla_db.create_sla(sla_data)
     
     # Update SLA commitments (track by estimated power for compatibility)
     global_state["sla_commitments"][sla_request.tier] += estimated_power_mw
@@ -1167,6 +1188,12 @@ async def request_sla_fallback(sla_request: SLARequest, estimated_power_mw: floa
         if site_id not in global_state["active_slas"]:
             global_state["active_slas"][site_id] = []
         global_state["active_slas"][site_id].append(sla_record)
+        
+        # Save SLA to database
+        sla_data = sla_record.copy()
+        sla_data['site_name'] = site_config["name"]
+        sla_data['preferred_region'] = sla_request.preferred_region
+        await sla_db.create_sla(sla_data)
         
         global_state["sla_commitments"][sla_request.tier] += estimated_power_mw
         
@@ -1494,6 +1521,123 @@ async def get_active_slas():
         "last_updated": datetime.now().isoformat()
     }
 
+@app.get("/api/sla/database")
+async def get_sla_database_info():
+    """Get SLA database information and statistics"""
+    try:
+        # Get database info
+        db_info = await sla_db.get_database_info()
+        
+        # Get comprehensive statistics
+        statistics = await sla_db.get_sla_statistics()
+        
+        return {
+            "database_info": db_info,
+            "statistics": statistics,
+            "status": "connected"
+        }
+    except Exception as e:
+        return {
+            "error": str(e),
+            "status": "error"
+        }
+
+@app.get("/api/sla/{sla_id}/usage")
+async def get_sla_usage_history(sla_id: str, hours: int = 24):
+    """Get usage history for a specific SLA"""
+    try:
+        usage_history = await sla_db.get_sla_usage_history(sla_id, hours)
+        
+        if not usage_history:
+            raise HTTPException(status_code=404, detail="SLA not found or no usage data available")
+        
+        # Calculate summary statistics
+        total_power = sum(u['power_consumed_mw'] for u in usage_history)
+        total_revenue = sum(u['revenue_generated'] for u in usage_history)
+        avg_efficiency = sum(u['efficiency_score'] for u in usage_history) / len(usage_history) if usage_history else 0
+        avg_uptime = sum(u['uptime_percentage'] for u in usage_history) / len(usage_history) if usage_history else 0
+        
+        return {
+            "sla_id": sla_id,
+            "usage_history": usage_history,
+            "summary": {
+                "total_records": len(usage_history),
+                "total_power_consumed_mw": round(total_power, 3),
+                "total_revenue_generated": round(total_revenue, 2),
+                "average_efficiency": round(avg_efficiency, 3),
+                "average_uptime": round(avg_uptime, 1),
+                "period_hours": hours
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving SLA usage: {str(e)}")
+
+@app.post("/api/sla/{sla_id}/terminate")
+async def terminate_sla(sla_id: str):
+    """Terminate an active SLA"""
+    try:
+        # Update status in database
+        success = await sla_db.update_sla_status(sla_id, "terminated")
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="SLA not found")
+        
+        # Remove from in-memory storage
+        for site_id, site_slas in global_state["active_slas"].items():
+            for i, sla in enumerate(site_slas):
+                if sla["sla_id"] == sla_id:
+                    # Reduce commitments
+                    power_per_unit = {'gpu': 0.33, 'asic': 3.0, 'mixed': 1.5}
+                    estimated_power_mw = (sla["compute_units"] * power_per_unit[sla["compute_type"]]) / 1000
+                    global_state["sla_commitments"][sla["tier"]] = max(0, 
+                        global_state["sla_commitments"][sla["tier"]] - estimated_power_mw)
+                    
+                    # Remove from memory
+                    del site_slas[i]
+                    
+                    if not site_slas:  # Remove empty site entry
+                        del global_state["active_slas"][site_id]
+                    
+                    return {
+                        "sla_id": sla_id,
+                        "status": "terminated",
+                        "message": "SLA terminated successfully"
+                    }
+        
+        return {
+            "sla_id": sla_id,
+            "status": "terminated",
+            "message": "SLA terminated in database but not found in memory"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error terminating SLA: {str(e)}")
+
+@app.get("/api/sla/statistics")
+async def get_comprehensive_sla_statistics():
+    """Get comprehensive SLA statistics from database"""
+    try:
+        statistics = await sla_db.get_sla_statistics()
+        
+        # Add real-time memory statistics for comparison
+        memory_stats = {
+            "active_sites": len(global_state["active_slas"]),
+            "total_memory_slas": sum(len(slas) for slas in global_state["active_slas"].values()),
+            "memory_commitments": global_state["sla_commitments"]
+        }
+        
+        return {
+            "database_statistics": statistics,
+            "memory_statistics": memory_stats,
+            "sync_status": "synchronized" if statistics.get('totals', {}).get('total_active', 0) == memory_stats['total_memory_slas'] else "out_of_sync"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving SLA statistics: {str(e)}")
+
 def cleanup_expired_slas():
     """Remove expired SLAs from active tracking"""
     current_time = datetime.now()
@@ -1522,6 +1666,103 @@ def cleanup_expired_slas():
             global_state["active_slas"][site_id] = active_slas
         else:
             del global_state["active_slas"][site_id]
+
+async def load_slas_from_database():
+    """Load existing SLAs from database into global state"""
+    try:
+        active_slas = await sla_db.get_active_slas()
+        
+        # Clear current in-memory SLAs
+        global_state["active_slas"] = {}
+        global_state["sla_commitments"] = {"premium": 0, "standard": 0, "flexible": 0, "spot": 0}
+        
+        # Load SLAs into memory for compatibility with existing code
+        for sla in active_slas:
+            site_id = sla['site_id']
+            if site_id not in global_state["active_slas"]:
+                global_state["active_slas"][site_id] = []
+            
+            # Convert database record back to in-memory format
+            sla_record = {
+                "sla_id": sla['sla_id'],
+                "tier": sla['tier'],
+                "compute_type": sla['compute_type'],
+                "compute_units": sla['compute_units'],
+                "duration_hours": sla['duration_hours'],
+                "site_id": sla['site_id'],
+                "created_at": sla['created_at'],
+                "expires_at": sla['expires_at'],
+                "estimated_revenue": sla['estimated_revenue'],
+                "status": sla['status'],
+                "claude_optimized": bool(sla['claude_optimized'])
+            }
+            
+            global_state["active_slas"][site_id].append(sla_record)
+            
+            # Update SLA commitments
+            power_per_unit = {'gpu': 0.33, 'asic': 3.0, 'mixed': 1.5}
+            estimated_power_mw = (sla['compute_units'] * power_per_unit[sla['compute_type']]) / 1000
+            global_state["sla_commitments"][sla['tier']] += estimated_power_mw
+        
+        print(f"📊 Loaded {len(active_slas)} active SLAs from database")
+        
+    except Exception as e:
+        print(f"⚠️ Error loading SLAs from database: {e}")
+
+async def save_current_state_to_database():
+    """Save current state to database before shutdown"""
+    try:
+        # Update SLA commitments in database
+        await sla_db.update_sla_commitments(global_state["sla_commitments"])
+        print("💾 Current state saved to database")
+    except Exception as e:
+        print(f"⚠️ Error saving state to database: {e}")
+
+async def periodic_sla_usage_tracking():
+    """Background task to track SLA usage and record metrics"""
+    while True:
+        try:
+            await asyncio.sleep(300)  # Every 5 minutes
+            
+            # Get all active SLAs and record usage
+            for site_id, site_slas in global_state["active_slas"].items():
+                site_config = MULTI_SITE_CONFIG.get(site_id, {})
+                
+                for sla in site_slas:
+                    # Calculate current usage metrics
+                    power_per_unit = {'gpu': 0.33, 'asic': 3.0, 'mixed': 1.5}
+                    power_consumed = (sla['compute_units'] * power_per_unit[sla['compute_type']]) / 1000
+                    
+                    # Simulate efficiency and uptime based on site conditions
+                    site_efficiency = calculate_efficiency_score(site_config, simulate_weather(site_config.get('climate', {})))
+                    uptime_percentage = min(99.9, site_efficiency + random.uniform(-5, 5))
+                    
+                    # Calculate revenue for this period (5 minutes)
+                    hourly_rate = sla['estimated_revenue'] / sla['duration_hours']
+                    period_revenue = hourly_rate * (5/60)  # 5 minutes worth
+                    
+                    # Record usage in database
+                    usage_data = {
+                        'sla_id': sla['sla_id'],
+                        'compute_units_used': sla['compute_units'],
+                        'power_consumed_mw': power_consumed,
+                        'revenue_generated': period_revenue,
+                        'efficiency_score': site_efficiency / 100,  # Convert to 0-1 scale
+                        'uptime_percentage': uptime_percentage
+                    }
+                    
+                    await sla_db.record_sla_usage(usage_data)
+            
+            # Cleanup expired SLAs
+            expired_count = await sla_db.cleanup_expired_slas()
+            if expired_count > 0:
+                print(f"🧹 Cleaned up {expired_count} expired SLAs")
+                # Reload SLAs to sync with database
+                await load_slas_from_database()
+            
+        except Exception as e:
+            print(f"⚠️ Error in SLA usage tracking: {e}")
+            await asyncio.sleep(60)  # Retry in 1 minute on error
 
 if __name__ == "__main__":
     import uvicorn

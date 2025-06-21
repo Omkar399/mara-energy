@@ -8,6 +8,13 @@ let optimizationHistory = [];
 let lastOptimizationTime = null;
 let activityPaused = false;
 let activityCount = 0;
+let activeSLAs = []; // Store all SLAs
+let slaStats = {
+    total: 0,
+    active: 0,
+    revenue: 0,
+    avgUptime: 0
+};
 
 // API base URL
 const API_BASE = '';
@@ -15,15 +22,396 @@ const API_BASE = '';
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
     initializeEventListeners();
+    initializeTabNavigation();
     initializeCharts();
     initializeMap();
     showWelcomeMessage();
+    
+    // Load SLAs on startup
+    loadSLAsOnStartup();
     
     // Start the dashboard immediately since system is auto-initialized
     setTimeout(() => {
         startDashboard();
     }, 1000); // Small delay to let the UI settle
 });
+
+// Tab Navigation Functions
+function initializeTabNavigation() {
+    const tabButtons = document.querySelectorAll('.tab-button');
+    const tabContents = document.querySelectorAll('.tab-content');
+    
+    tabButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            const tabId = button.getAttribute('data-tab');
+            switchTab(tabId);
+        });
+    });
+    
+    // Set default active tab
+    switchTab('dashboard');
+}
+
+function switchTab(tabId) {
+    // Update tab buttons
+    document.querySelectorAll('.tab-button').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
+    
+    // Update tab contents
+    document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+    });
+    document.getElementById(tabId).classList.add('active');
+    
+    // Load tab-specific data
+    if (tabId === 'sla-management') {
+        loadSLAManagement();
+    }
+}
+
+// SLA Management Functions
+async function loadSLAsOnStartup() {
+    try {
+        // Load from localStorage first (simulating persistent storage)
+        const storedSLAs = localStorage.getItem('activeSLAs');
+        if (storedSLAs) {
+            activeSLAs = JSON.parse(storedSLAs);
+        }
+        
+        // Add some sample SLAs if none exist
+        if (activeSLAs.length === 0) {
+            activeSLAs = [
+                {
+                    id: 'SLA-001',
+                    companyName: 'Tesla AI Division',
+                    tier: 'premium',
+                    computeType: 'gpu',
+                    computeUnits: 500,
+                    duration: 24,
+                    region: 'nordic',
+                    status: 'active',
+                    allocatedSite: 'Nordic Iceland',
+                    createdAt: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
+                    expiresAt: new Date(Date.now() + 82800000).toISOString(), // 23 hours from now
+                    cost: 11550,
+                    uptime: 99.9,
+                    currentUptime: 99.95
+                },
+                {
+                    id: 'SLA-002',
+                    companyName: 'OpenAI Research',
+                    tier: 'standard',
+                    computeType: 'asic',
+                    computeUnits: 100,
+                    duration: 12,
+                    region: 'asia',
+                    status: 'active',
+                    allocatedSite: 'Singapore',
+                    createdAt: new Date(Date.now() - 7200000).toISOString(), // 2 hours ago
+                    expiresAt: new Date(Date.now() + 36000000).toISOString(), // 10 hours from now
+                    cost: 7200,
+                    uptime: 95.0,
+                    currentUptime: 96.2
+                },
+                {
+                    id: 'SLA-003',
+                    companyName: 'Meta AI Labs',
+                    tier: 'flexible',
+                    computeType: 'mixed',
+                    computeUnits: 200,
+                    duration: 6,
+                    region: 'americas',
+                    status: 'expired',
+                    allocatedSite: 'Texas',
+                    createdAt: new Date(Date.now() - 28800000).toISOString(), // 8 hours ago
+                    expiresAt: new Date(Date.now() - 7200000).toISOString(), // 2 hours ago
+                    cost: 2160,
+                    uptime: 90.0,
+                    currentUptime: 91.5
+                }
+            ];
+            saveSLAsToStorage();
+        }
+        
+        updateSLAStats();
+        addActivityItem('system', 'SLAs Loaded', `${activeSLAs.length} SLA agreements loaded from storage`, 'fas fa-handshake');
+    } catch (error) {
+        console.error('Error loading SLAs:', error);
+        addActivityItem('error', 'SLA Load Error', 'Failed to load SLA data from storage', 'fas fa-exclamation-triangle');
+    }
+}
+
+function saveSLAsToStorage() {
+    try {
+        localStorage.setItem('activeSLAs', JSON.stringify(activeSLAs));
+    } catch (error) {
+        console.error('Error saving SLAs:', error);
+    }
+}
+
+function updateSLAStats() {
+    const activeSLAsCount = activeSLAs.filter(sla => sla.status === 'active').length;
+    const totalRevenue = activeSLAs.reduce((sum, sla) => sum + sla.cost, 0);
+    const avgUptime = activeSLAs.length > 0 ? 
+        activeSLAs.reduce((sum, sla) => sum + sla.currentUptime, 0) / activeSLAs.length : 0;
+    
+    slaStats = {
+        total: activeSLAs.length,
+        active: activeSLAsCount,
+        revenue: totalRevenue,
+        avgUptime: avgUptime
+    };
+}
+
+function loadSLAManagement() {
+    updateSLAStats();
+    renderSLAStats();
+    renderSLATable();
+    setupSLAFilters();
+}
+
+function renderSLAStats() {
+    const statsContainer = document.getElementById('slaStatsGrid');
+    if (!statsContainer) return;
+    
+    statsContainer.innerHTML = `
+        <div class="sla-stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-handshake"></i>
+            </div>
+            <div class="stat-content">
+                <h3>Total SLAs</h3>
+                <div class="stat-value">${slaStats.total}</div>
+                <div class="stat-change">All time agreements</div>
+            </div>
+        </div>
+        <div class="sla-stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-check-circle"></i>
+            </div>
+            <div class="stat-content">
+                <h3>Active SLAs</h3>
+                <div class="stat-value">${slaStats.active}</div>
+                <div class="stat-change">Currently running</div>
+            </div>
+        </div>
+        <div class="sla-stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-dollar-sign"></i>
+            </div>
+            <div class="stat-content">
+                <h3>Total Revenue</h3>
+                <div class="stat-value">${formatCurrency(slaStats.revenue)}</div>
+                <div class="stat-change">From all SLAs</div>
+            </div>
+        </div>
+        <div class="sla-stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-chart-line"></i>
+            </div>
+            <div class="stat-content">
+                <h3>Average Uptime</h3>
+                <div class="stat-value">${formatPercentage(slaStats.avgUptime)}</div>
+                <div class="stat-change">Across all SLAs</div>
+            </div>
+        </div>
+    `;
+}
+
+function renderSLATable() {
+    const tableBody = document.getElementById('slaTableBody');
+    if (!tableBody) return;
+    
+    tableBody.innerHTML = '';
+    
+    activeSLAs.forEach(sla => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${sla.id}</td>
+            <td class="company-name">${sla.companyName || 'Unknown Client'}</td>
+            <td><span class="sla-tier-badge ${sla.tier}">${sla.tier}</span></td>
+            <td>${sla.computeUnits.toLocaleString()} ${sla.computeType.toUpperCase()}</td>
+            <td>${sla.allocatedSite}</td>
+            <td>${sla.duration} hrs</td>
+            <td>${formatCurrency(sla.cost)}</td>
+            <td><span class="sla-status ${sla.status}">${sla.status}</span></td>
+            <td>${formatTime(sla.createdAt)}</td>
+            <td>${formatTime(sla.expiresAt)}</td>
+            <td>
+                <div class="action-buttons">
+                    <button class="btn-action btn-view" onclick="viewSLADetails('${sla.id}')" title="View Details">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                    ${sla.status === 'active' ? `
+                        <button class="btn-action btn-terminate" onclick="terminateSLA('${sla.id}')" title="Terminate SLA">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    ` : ''}
+                </div>
+            </td>
+        `;
+        tableBody.appendChild(row);
+    });
+}
+
+function setupSLAFilters() {
+    const statusFilter = document.getElementById('statusFilter');
+    const tierFilter = document.getElementById('tierFilter');
+    
+    if (statusFilter) {
+        statusFilter.addEventListener('change', filterSLATable);
+    }
+    if (tierFilter) {
+        tierFilter.addEventListener('change', filterSLATable);
+    }
+}
+
+function filterSLATable() {
+    const statusFilter = document.getElementById('statusFilter').value;
+    const tierFilter = document.getElementById('tierFilter').value;
+    
+    const filteredSLAs = activeSLAs.filter(sla => {
+        const statusMatch = statusFilter === 'all' || sla.status === statusFilter;
+        const tierMatch = tierFilter === 'all' || sla.tier === tierFilter;
+        return statusMatch && tierMatch;
+    });
+    
+    renderFilteredSLATable(filteredSLAs);
+}
+
+function renderFilteredSLATable(slas) {
+    const tableBody = document.getElementById('slaTableBody');
+    if (!tableBody) return;
+    
+    tableBody.innerHTML = '';
+    
+    slas.forEach(sla => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${sla.id}</td>
+            <td class="company-name">${sla.companyName || 'Unknown Client'}</td>
+            <td><span class="sla-tier-badge ${sla.tier}">${sla.tier}</span></td>
+            <td>${sla.computeUnits.toLocaleString()} ${sla.computeType.toUpperCase()}</td>
+            <td>${sla.allocatedSite}</td>
+            <td>${sla.duration} hrs</td>
+            <td>${formatCurrency(sla.cost)}</td>
+            <td><span class="sla-status ${sla.status}">${sla.status}</span></td>
+            <td>${formatTime(sla.createdAt)}</td>
+            <td>${formatTime(sla.expiresAt)}</td>
+            <td>
+                <div class="action-buttons">
+                    <button class="btn-action btn-view" onclick="viewSLADetails('${sla.id}')" title="View Details">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                    ${sla.status === 'active' ? `
+                        <button class="btn-action btn-terminate" onclick="terminateSLA('${sla.id}')" title="Terminate SLA">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    ` : ''}
+                </div>
+            </td>
+        `;
+        tableBody.appendChild(row);
+    });
+}
+
+function viewSLADetails(slaId) {
+    const sla = activeSLAs.find(s => s.id === slaId);
+    if (!sla) return;
+    
+    const modal = document.getElementById('slaModal');
+    const modalBody = document.getElementById('slaModalBody');
+    
+    modalBody.innerHTML = `
+        <div class="sla-details-grid">
+            <div class="detail-item">
+                <strong>SLA ID:</strong> ${sla.id}
+            </div>
+            <div class="detail-item">
+                <strong>Company/Client:</strong> ${sla.companyName || 'Unknown Client'}
+            </div>
+            <div class="detail-item">
+                <strong>Tier:</strong> <span class="sla-tier-badge ${sla.tier}">${sla.tier}</span>
+            </div>
+            <div class="detail-item">
+                <strong>Compute Resources:</strong> ${sla.computeUnits.toLocaleString()} ${sla.computeType.toUpperCase()}
+            </div>
+            <div class="detail-item">
+                <strong>Allocated Site:</strong> ${sla.allocatedSite}
+            </div>
+            <div class="detail-item">
+                <strong>Duration:</strong> ${sla.duration} hours
+            </div>
+            <div class="detail-item">
+                <strong>Cost:</strong> ${formatCurrency(sla.cost)}
+            </div>
+            <div class="detail-item">
+                <strong>Status:</strong> <span class="sla-status ${sla.status}">${sla.status}</span>
+            </div>
+            <div class="detail-item">
+                <strong>Guaranteed Uptime:</strong> ${formatPercentage(sla.uptime)}
+            </div>
+            <div class="detail-item">
+                <strong>Current Uptime:</strong> ${formatPercentage(sla.currentUptime)}
+            </div>
+            <div class="detail-item">
+                <strong>Created:</strong> ${formatTime(sla.createdAt)}
+            </div>
+            <div class="detail-item">
+                <strong>Expires:</strong> ${formatTime(sla.expiresAt)}
+            </div>
+            <div class="detail-item">
+                <strong>Region Preference:</strong> ${sla.region}
+            </div>
+        </div>
+    `;
+    
+    modal.classList.remove('hidden');
+}
+
+function terminateSLA(slaId) {
+    if (!confirm('Are you sure you want to terminate this SLA? This action cannot be undone.')) {
+        return;
+    }
+    
+    const slaIndex = activeSLAs.findIndex(s => s.id === slaId);
+    if (slaIndex === -1) return;
+    
+    activeSLAs[slaIndex].status = 'terminated';
+    activeSLAs[slaIndex].terminatedAt = new Date().toISOString();
+    
+    saveSLAsToStorage();
+    loadSLAManagement();
+    
+    addActivityItem('sla', 'SLA Terminated', `SLA ${slaId} has been terminated by user`, 'fas fa-times-circle');
+    showNotification(`SLA ${slaId} has been terminated`, 'warning', 3000);
+}
+
+function closeSLAModal() {
+    document.getElementById('slaModal').classList.add('hidden');
+}
+
+function refreshSLAData() {
+    loadSLAManagement();
+    addActivityItem('system', 'SLA Data Refreshed', 'SLA management data has been refreshed', 'fas fa-sync-alt');
+    showNotification('SLA data refreshed', 'success', 2000);
+}
+
+function exportSLAData() {
+    const dataStr = JSON.stringify(activeSLAs, null, 2);
+    const dataBlob = new Blob([dataStr], {type: 'application/json'});
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `sla-data-${new Date().toISOString().split('T')[0]}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    
+    addActivityItem('system', 'SLA Data Exported', 'SLA data exported to JSON file', 'fas fa-download');
+    showNotification('SLA data exported successfully', 'success', 3000);
+}
 
 // Show welcome message
 function showWelcomeMessage() {
@@ -63,12 +451,17 @@ function initializeEventListeners() {
     document.getElementById('pauseActivityBtn').addEventListener('click', toggleActivityFeed);
     document.getElementById('clearActivityBtn').addEventListener('click', clearActivityFeed);
     
+    // SLA management controls
+    document.getElementById('refreshSLAsBtn').addEventListener('click', refreshSLAData);
+    document.getElementById('exportSLAsBtn').addEventListener('click', exportSLAData);
+    
     // Enhanced SLA form validation and preview
     document.getElementById('slaTypeSelect').addEventListener('change', updateSLAPreview);
     document.getElementById('computeType').addEventListener('change', updateSLAPreview);
     document.getElementById('computeUnits').addEventListener('input', handleSLAFormInput);
     document.getElementById('durationHours').addEventListener('input', handleSLAFormInput);
     document.getElementById('preferredRegion').addEventListener('change', updateSLAPreview);
+    document.getElementById('companyName').addEventListener('input', updateSLAPreview);
     
     // Add keyboard shortcuts
     document.addEventListener('keydown', handleKeyboardShortcuts);
@@ -172,11 +565,14 @@ function updateSLAPreview() {
     const computeUnits = parseInt(document.getElementById('computeUnits').value) || 0;
     const durationHours = parseInt(document.getElementById('durationHours').value) || 0;
     const region = document.getElementById('preferredRegion').value;
+    const companyName = document.getElementById('companyName').value.trim();
     
     // Update preview values
+    document.getElementById('previewCompany').textContent = companyName || '-';
     document.getElementById('previewTier').textContent = tier.toUpperCase();
     document.getElementById('previewCompute').textContent = computeUnits > 0 ? `${computeUnits.toLocaleString()} ${computeType.toUpperCase()}` : '-';
     document.getElementById('previewDuration').textContent = durationHours > 0 ? `${durationHours} hours` : '-';
+    document.getElementById('previewRegion').textContent = region === 'any' ? 'Any Available' : region.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
     
     // Calculate cost, uptime, and estimated power
     if (computeUnits > 0 && durationHours > 0) {
@@ -380,8 +776,9 @@ async function requestSLAWithFeedback() {
     const computeUnits = parseInt(document.getElementById('computeUnits').value);
     const durationHours = parseInt(document.getElementById('durationHours').value);
     const preferredRegion = document.getElementById('preferredRegion').value;
+    const companyName = document.getElementById('companyName').value.trim();
     
-    if (!validateSLAInputs(tier, computeUnits, durationHours)) {
+    if (!validateSLAInputs(tier, computeUnits, durationHours, companyName)) {
         return;
     }
     
@@ -391,11 +788,11 @@ async function requestSLAWithFeedback() {
     slaBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
     
     addActivityItem('sla', 'SLA Request Submitted', 
-        `Processing ${tier.toUpperCase()} SLA request for ${computeUnits.toLocaleString()} ${computeType.toUpperCase()} over ${durationHours} hours`, 
+        `Processing ${tier.toUpperCase()} SLA request for ${companyName || 'Unknown Client'}: ${computeUnits.toLocaleString()} ${computeType.toUpperCase()} over ${durationHours} hours`, 
         'fas fa-paper-plane');
     
     try {
-        showNotification(`🔄 Processing ${tier.toUpperCase()} SLA request for ${computeUnits} ${computeType.toUpperCase()}...`, 'info', 2000);
+        showNotification(`🔄 Processing ${tier.toUpperCase()} SLA request for ${companyName || 'client'}: ${computeUnits} ${computeType.toUpperCase()}...`, 'info', 2000);
         
         const response = await fetch(`${API_BASE}/api/sla/request`, {
             method: 'POST',
@@ -407,7 +804,8 @@ async function requestSLAWithFeedback() {
                 compute_type: computeType,
                 compute_units: computeUnits,
                 duration_hours: durationHours,
-                preferred_region: preferredRegion
+                preferred_region: preferredRegion,
+                company_name: companyName
             })
         });
         
@@ -426,16 +824,38 @@ async function requestSLAWithFeedback() {
         const expirationDate = new Date(data.expires_at);
         const expirationStr = expirationDate.toLocaleString();
         
-        showNotification(`✅ ${tier.toUpperCase()} SLA allocated successfully!\n📍 Site: ${siteName}\n💻 Compute: ${data.compute_units_allocated} ${data.compute_type.toUpperCase()}\n⚡ Est. Power: ${data.estimated_power_mw} MW\n💰 Est. Revenue: ${formatCurrency(data.estimated_revenue)}\n⏱️ Duration: ${durationHours} hours\n🎯 Uptime: ${data.estimated_uptime}%\n⏰ Expires: ${expirationStr}`, 'success', 8000);
+        // Add the new SLA to our management system
+        const newSLA = {
+            id: `SLA-${String(activeSLAs.length + 1).padStart(3, '0')}`,
+            companyName: companyName || 'Unknown Client',
+            tier: tier,
+            computeType: computeType,
+            computeUnits: data.compute_units_allocated,
+            duration: durationHours,
+            region: preferredRegion,
+            status: 'active',
+            allocatedSite: siteName,
+            createdAt: new Date().toISOString(),
+            expiresAt: data.expires_at,
+            cost: data.estimated_revenue,
+            uptime: data.estimated_uptime,
+            currentUptime: data.estimated_uptime + (Math.random() * 0.5 - 0.25) // Slight variation from guaranteed
+        };
+        
+        activeSLAs.push(newSLA);
+        saveSLAsToStorage();
+        updateSLAStats();
+        
+        showNotification(`✅ ${tier.toUpperCase()} SLA allocated successfully!\n🏢 Client: ${companyName || 'Unknown Client'}\n📍 Site: ${siteName}\n💻 Compute: ${data.compute_units_allocated} ${data.compute_type.toUpperCase()}\n⚡ Est. Power: ${data.estimated_power_mw} MW\n💰 Est. Revenue: ${formatCurrency(data.estimated_revenue)}\n⏱️ Duration: ${durationHours} hours\n🎯 Uptime: ${data.estimated_uptime}%\n⏰ Expires: ${expirationStr}`, 'success', 8000);
         
         // Add detailed activity log with workload allocation info
         addActivityItem('sla', 'SLA Request Approved', 
-            `${tier.toUpperCase()} SLA allocated to ${siteName}: ${data.compute_units_allocated} ${data.compute_type.toUpperCase()} units (${data.estimated_power_mw} MW) with ${data.estimated_uptime}% uptime guarantee. Est. revenue: ${formatCurrency(data.estimated_revenue)}. Expires: ${expirationStr}`, 
+            `${tier.toUpperCase()} SLA ${newSLA.id} for ${companyName || 'Unknown Client'} allocated to ${siteName}: ${data.compute_units_allocated} ${data.compute_type.toUpperCase()} units (${data.estimated_power_mw} MW) with ${data.estimated_uptime}% uptime guarantee. Est. revenue: ${formatCurrency(data.estimated_revenue)}. Expires: ${expirationStr}`, 
             'fas fa-handshake');
         
         // Show workload impact
         addActivityItem('system', 'Workload Allocation Updated', 
-            `Site ${siteName} now running AI inference workload. ${computeUnits} ${computeType.toUpperCase()} units allocated, remaining capacity will continue Bitcoin mining.`, 
+            `Site ${siteName} now running AI inference workload for ${companyName || 'client'}. ${computeUnits} ${computeType.toUpperCase()} units allocated, remaining capacity will continue Bitcoin mining.`, 
             'fas fa-cogs');
         
         // Animate the SLA tier card
@@ -465,14 +885,17 @@ async function requestSLAWithFeedback() {
         addActivityItem('error', 'SLA Request Failed', `Error processing SLA request: ${error.message}`, 'fas fa-exclamation-triangle');
     } finally {
         slaBtn.classList.remove('processing');
-        slaBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Create SLA Request';
+        slaBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Create SLA Agreement';
     }
 }
 
 // Validate SLA inputs with real-time feedback
-function validateSLAInputs(tier, computeUnits, durationHours) {
+function validateSLAInputs(tier, computeUnits, durationHours, companyName) {
     const errors = [];
     
+    if (!companyName || companyName.trim().length === 0) {
+        errors.push('Company/Client name is required');
+    }
     if (!computeUnits || computeUnits < 1) {
         errors.push('Compute units must be at least 1');
     }
@@ -545,7 +968,7 @@ function animateSLATierUpdate(tier, computeUnits) {
 
 // Clear SLA form with animation
 function clearSLAFormWithAnimation() {
-    const inputs = ['computeUnits', 'durationHours'];
+    const inputs = ['companyName', 'computeUnits', 'durationHours'];
     inputs.forEach(inputId => {
         const input = document.getElementById(inputId);
         input.style.transform = 'scale(0.95)';
@@ -554,6 +977,14 @@ function clearSLAFormWithAnimation() {
             input.style.transform = 'scale(1)';
         }, 200);
     });
+    
+    // Reset selects to default values
+    document.getElementById('slaTypeSelect').value = 'premium';
+    document.getElementById('computeType').value = 'gpu';
+    document.getElementById('preferredRegion').value = 'any';
+    
+    // Update preview to reflect cleared form
+    updateSLAPreview();
     
     // Remove estimated cost
     const costDisplay = document.getElementById('estimatedCost');
