@@ -2351,9 +2351,301 @@ body::before {
 /* Company name styling in table */
 .company-name {
     font-weight: 600;
-    color: #10b981;
-    max-width: 150px;
+    color: var(--primary-color);
+}
+
+/* ASIC Competitive Pricing Styles */
+.asic-pricing-section {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 1rem;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    backdrop-filter: blur(10px);
+    position: relative;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+}
+
+.asic-pricing-section::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--warning-color), var(--primary-color), var(--success-color));
+    border-radius: 1rem 1rem 0 0;
+}
+
+.pricing-header {
+    text-align: center;
+    margin-bottom: 1.5rem;
+}
+
+.pricing-header h4 {
+    color: var(--warning-color);
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.pricing-header h4 i {
+    font-size: 1.5rem;
+    animation: spin 3s linear infinite;
+}
+
+.pricing-description {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin: 0;
+}
+
+.mining-profitability-info {
+    background: var(--dark-card);
+    border: 1px solid var(--dark-border);
+    border-radius: 0.75rem;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.profitability-loading {
+    text-align: center;
+    color: var(--text-secondary);
+    padding: 1rem;
+}
+
+.profitability-loading i {
+    margin-right: 0.5rem;
+    color: var(--primary-color);
+}
+
+.profitability-data {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+.profitability-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem;
+    background: var(--glass-bg);
+    border-radius: 0.5rem;
+    border: 1px solid var(--glass-border);
+}
+
+.profitability-label {
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+.profitability-value {
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.profitability-value.positive {
+    color: var(--success-color);
+}
+
+.profitability-value.negative {
+    color: var(--danger-color);
+}
+
+.competitive-analysis {
+    background: var(--dark-card);
+    border: 1px solid var(--dark-border);
+    border-radius: 0.75rem;
+    padding: 1rem;
+}
+
+.analysis-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--dark-border);
+}
+
+.analysis-item:last-child {
+    border-bottom: none;
+}
+
+.analysis-label {
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+.analysis-value {
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.analysis-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    background: var(--glass-bg);
+    border-radius: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.status-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--text-muted);
+}
+
+.status-indicator.competitive {
+    background: var(--success-color);
+    animation: pulse 2s infinite;
+}
+
+.status-indicator.not-competitive {
+    background: var(--danger-color);
+    animation: pulse 2s infinite;
+}
+
+.status-indicator.neutral {
+    background: var(--warning-color);
+}
+
+.status-text {
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.status-text.competitive {
+    color: var(--success-color);
+}
+
+.status-text.not-competitive {
+    color: var(--danger-color);
+}
+
+.status-text.neutral {
+    color: var(--warning-color);
+}
+
+.pricing-recommendations {
+    background: var(--dark-card);
+    border: 1px solid var(--dark-border);
+    border-radius: 0.75rem;
+    padding: 1rem;
+    margin-top: 1rem;
+}
+
+.pricing-recommendations h5 {
+    color: var(--success-color);
+    font-size: 1rem;
+    font-weight: 700;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.pricing-recommendations h5 i {
+    color: var(--warning-color);
+}
+
+.recommendation-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0.75rem;
+}
+
+.recommendation-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0.75rem;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 0.5rem;
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.recommendation-item:hover {
+    background: var(--primary-color);
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.rec-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-align: center;
+    margin-bottom: 0.25rem;
+}
+
+.recommendation-item:hover .rec-label {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.rec-value {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.recommendation-item:hover .rec-value {
+    color: white;
+}
+
+/* Custom ASIC price input styling */
+#customAsicPrice {
+    background: var(--dark-card);
+    border: 2px solid var(--dark-border);
+    color: var(--text-primary);
+    font-size: 1.1rem;
+    font-weight: 600;
+    text-align: center;
+}
+
+#customAsicPrice:focus {
+    border-color: var(--warning-color);
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+}
+
+#customAsicPrice.competitive {
+    border-color: var(--success-color);
+    background: rgba(16, 185, 129, 0.1);
+}
+
+#customAsicPrice.not-competitive {
+    border-color: var(--danger-color);
+    background: rgba(239, 68, 68, 0.1);
+}
+
+/* Responsive design for ASIC pricing */
+@media (max-width: 768px) {
+    .asic-pricing-section {
+        padding: 1rem;
+        margin: 0.75rem 0;
+    }
+    
+    .profitability-data {
+        grid-template-columns: 1fr;
+    }
+    
+    .recommendation-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .pricing-header h4 {
+        font-size: 1.1rem;
+    }
 } 

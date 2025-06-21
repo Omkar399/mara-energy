@@ -17,6 +17,7 @@ import math
 import time
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
+import re
 
 # Import database module
 from database import sla_db
@@ -246,6 +247,8 @@ class SLARequest(BaseModel):
     compute_units: int  # Number of compute units
     duration_hours: int
     preferred_region: Optional[str] = None
+    company_name: Optional[str] = None
+    custom_asic_price: Optional[float] = None  # Custom price per ASIC per hour for competitive pricing
 
 # Utility functions
 def get_local_time(timezone_str: str) -> str:
@@ -391,48 +394,99 @@ async def claude_optimizer(site_data: Dict, sla_commitments: Dict) -> str:
             ⚠️  To enable real Claude AI optimization, add your Claude API key to config.env
             """
         
+        # Get current market prices for profitability analysis
+        current_prices = global_state.get("current_prices", {})
+        hash_price = current_prices.get("hash_price", 8.5)
+        token_price = current_prices.get("token_price", 2.9)
+        energy_price = current_prices.get("energy_price", 0.65)
+        
+        # Calculate mining vs AI inference profitability
+        mara_inventory = global_state.get("mara_inventory", {})
+        
+        # Mining profitability per unit
+        mining_revenue_per_unit = hash_price * 1000  # hashrate * hash_price
+        mining_power_cost_per_unit = energy_price * 3.5  # 3.5kW average power consumption
+        mining_profit_margin = ((mining_revenue_per_unit - mining_power_cost_per_unit) / mining_revenue_per_unit) * 100
+        
+        # AI inference profitability per unit  
+        ai_revenue_per_unit = token_price * 1000  # tokens * token_price
+        ai_power_cost_per_unit = energy_price * 5.0  # 5kW average power consumption
+        ai_profit_margin = ((ai_revenue_per_unit - ai_power_cost_per_unit) / ai_revenue_per_unit) * 100
+        
+        # Market analysis summary
+        market_analysis = f"""
+        CURRENT MARKET CONDITIONS (Real-time MARA API):
+        - Hash Price: ${hash_price:.2f} (Bitcoin mining revenue per TH/s)
+        - Token Price: ${token_price:.2f} (AI inference revenue per token)
+        - Energy Price: ${energy_price:.2f} per kWh
+        
+        PROFITABILITY ANALYSIS:
+        - Bitcoin Mining Profit Margin: {mining_profit_margin:.1f}%
+        - AI Inference Profit Margin: {ai_profit_margin:.1f}%
+        - Optimal Strategy: {'AI Inference' if ai_profit_margin > mining_profit_margin else 'Bitcoin Mining' if mining_profit_margin > 0 else 'Minimal Operations'}
+        
+        ARBITRAGE OPPORTUNITY: {abs(ai_profit_margin - mining_profit_margin):.1f}% profit difference between workloads
+        """
+        
         # Prepare comprehensive site data for Claude
         site_summary = []
         for site_id, site in site_data.items():
             site_config = MULTI_SITE_CONFIG[site_id]
+            
+            # Calculate site-specific profitability
+            site_energy_multiplier = site_config['energy_cost_multiplier']
+            site_mining_profit = mining_profit_margin - (site_energy_multiplier - 1) * 20  # Adjust for local energy costs
+            site_ai_profit = ai_profit_margin - (site_energy_multiplier - 1) * 15
+            
             site_summary.append(f"""
-            {site['name']}:
-            - Temperature: {site['weather']['temperature']:.1f}°F
-            - Cooling Efficiency: {site['cooling_efficiency']:.1%}
-            - Energy Cost Multiplier: {site_config['energy_cost_multiplier']}x
+            {site['name']} ({site_id}):
+            - Temperature: {site['weather']['temperature']:.1f}°F (Cooling: {site['cooling_efficiency']:.1%})
+            - Energy Cost Multiplier: {site_energy_multiplier}x (${energy_price * site_energy_multiplier:.3f}/kWh)
             - Renewable Energy: {site_config['climate']['renewable_energy']:.1%}
-            - Local Time: {site.get('local_time', 'N/A')}
+            - Local Time: {site.get('local_time', 'N/A')} (Demand: {calculate_demand_multiplier(site_config['location']['timezone']):.2f}x)
             - Current Revenue: ${site.get('revenue', 0):,.2f}
             - Power Used: {site.get('power_used', 0):,} MW
+            - Site Mining Profitability: {site_mining_profit:.1f}%
+            - Site AI Profitability: {site_ai_profit:.1f}%
+            - Optimal Workload: {'AI Inference' if site_ai_profit > site_mining_profit else 'Bitcoin Mining' if site_mining_profit > 0 else 'Reduce Operations'}
             """)
         
-        # Real Claude API call
+        # Real Claude API call with enhanced market context
         message = claude_client.messages.create(
             model="claude-3-5-sonnet-20241022",
-            max_tokens=1000,
+            max_tokens=1500,
             temperature=0.3,
             messages=[{
                 "role": "user",
                 "content": f"""
                 You are an AI optimization expert managing a global network of 10 data centers for energy arbitrage between Bitcoin mining and AI inference services.
 
-                CURRENT GLOBAL SITUATION:
+                {market_analysis}
+
+                CURRENT SITE CONDITIONS:
                 {chr(10).join(site_summary)}
 
-                SLA COMMITMENTS:
+                CURRENT SLA COMMITMENTS:
                 - Premium (99.9% uptime): {sla_commitments.get('premium', 0)} MW
                 - Standard (95% uptime): {sla_commitments.get('standard', 0)} MW  
                 - Flexible (90% uptime): {sla_commitments.get('flexible', 0)} MW
                 - Spot (best effort): {sla_commitments.get('spot', 0)} MW
 
-                OPTIMIZATION OBJECTIVES:
-                1. Maximize total revenue across all sites
-                2. Route workloads to sites with best cooling efficiency
-                3. Leverage timezone differences for AI inference demand
-                4. Prioritize renewable energy sites for ESG compliance
-                5. Maintain SLA commitments with geographic redundancy
+                CRITICAL OPTIMIZATION DECISIONS NEEDED:
+                1. **Profitability Arbitrage**: Should we shift from Bitcoin mining to AI inference based on current margins?
+                2. **Geographic Arbitrage**: Which sites have the best profit margins after accounting for energy costs?
+                3. **Climate Arbitrage**: How can we leverage cooling efficiency differences for maximum profit?
+                4. **Timezone Arbitrage**: Which sites are in peak demand periods for AI inference?
+                5. **Energy Arbitrage**: Should we reduce operations at high-cost sites?
 
-                Provide a comprehensive optimization strategy with specific allocation recommendations for each site.
+                PROVIDE SPECIFIC RECOMMENDATIONS:
+                - For each site, specify exact allocation percentages between Bitcoin mining and AI inference
+                - Identify which sites should prioritize AI inference based on current token prices
+                - Recommend which sites should reduce Bitcoin mining if unprofitable
+                - Suggest optimal SLA tier routing based on profitability and efficiency
+                - Include specific percentage allocations (e.g., "Nordic Iceland: 70% AI inference, 30% Bitcoin mining")
+
+                Make data-driven decisions based on the real profitability numbers provided above.
                 """
             }]
         )
@@ -445,16 +499,16 @@ async def claude_optimizer(site_data: Dict, sla_commitments: Dict) -> str:
 def distribute_hardware_across_sites(mara_inventory: Dict) -> Dict:
     """Distribute MARA's hardware inventory across 10 sites based on their profiles"""
     
-    # Total hardware to distribute (realistic quantities)
+    # Total hardware to distribute (increased realistic quantities for better capacity)
     total_hardware = {
         "miners": {
-            "air": 500,      # 500 air miners total
-            "hydro": 200,    # 200 hydro miners total  
-            "immersion": 100 # 100 immersion miners total
+            "air": 2000,      # 2000 air miners total (increased from 500)
+            "hydro": 1000,    # 1000 hydro miners total (increased from 200)
+            "immersion": 500  # 500 immersion miners total (increased from 100)
         },
         "inference": {
-            "gpu": 1000,     # 1000 GPU units total
-            "asic": 300      # 300 ASIC inference units total
+            "gpu": 5000,     # 5000 GPU units total (increased from 1000)
+            "asic": 2000     # 2000 ASIC inference units total (increased from 300)
         }
     }
     
@@ -465,35 +519,35 @@ def distribute_hardware_across_sites(mara_inventory: Dict) -> Dict:
         asic_ratio = site_config["hardware_profile"]["asic_ratio"]
         cooling_efficiency = site_config["climate"]["cooling_efficiency"]
         
-        # Distribute hardware based on site profile
+        # Distribute hardware based on site profile (increased allocation per site)
         site_inventories[site_id] = {
             "miners": {
                 "air": {
                     "hashrate": mara_inventory["miners"]["air"]["hashrate"],
                     "power": mara_inventory["miners"]["air"]["power"],
-                    "available": int(total_hardware["miners"]["air"] * 0.1)  # 10% per site
+                    "available": int(total_hardware["miners"]["air"] * 0.15)  # 15% per site (increased from 10%)
                 },
                 "hydro": {
                     "hashrate": mara_inventory["miners"]["hydro"]["hashrate"],
                     "power": mara_inventory["miners"]["hydro"]["power"],
-                    "available": int(total_hardware["miners"]["hydro"] * cooling_efficiency * 0.1)
+                    "available": int(total_hardware["miners"]["hydro"] * cooling_efficiency * 0.15)
                 },
                 "immersion": {
                     "hashrate": mara_inventory["miners"]["immersion"]["hashrate"],
                     "power": mara_inventory["miners"]["immersion"]["power"],
-                    "available": int(total_hardware["miners"]["immersion"] * cooling_efficiency * 0.1)
+                    "available": int(total_hardware["miners"]["immersion"] * cooling_efficiency * 0.15)
                 }
             },
             "inference": {
                 "gpu": {
                     "tokens": mara_inventory["inference"]["gpu"]["tokens"],
                     "power": mara_inventory["inference"]["gpu"]["power"],
-                    "available": int(total_hardware["inference"]["gpu"] * gpu_ratio * 0.1)
+                    "available": int(total_hardware["inference"]["gpu"] * gpu_ratio * 0.15)  # 15% per site
                 },
                 "asic": {
                     "tokens": mara_inventory["inference"]["asic"]["tokens"],
                     "power": mara_inventory["inference"]["asic"]["power"],
-                    "available": int(total_hardware["inference"]["asic"] * asic_ratio * 0.1)
+                    "available": int(total_hardware["inference"]["asic"] * asic_ratio * 0.15)  # 15% per site
                 }
             },
             "site_specs": {
@@ -799,104 +853,140 @@ def parse_claude_recommendations(claude_reasoning: str, site_data: Dict) -> Dict
             'texas': 'site_5_texas'
         }
         
+        # Parse percentage-based allocations from Claude's recommendations
         for line in lines:
             line = line.strip()
             
-            # Look for specific allocation percentages
+            # Look for specific percentage allocations
             for site_name, site_id in site_name_mapping.items():
-                if site_name in line:
+                if site_name in line and '%' in line:
                     if site_id not in allocations:
                         allocations[site_id] = {}
                     
-                    # Parse AI inference allocations
-                    if 'allocate' in line and ('premium' in line or 'ai' in line):
-                        if '40%' in line:
-                            allocations[site_id]['gpu_compute'] = 80  # High allocation
-                            allocations[site_id]['ai_focus'] = 40
-                        elif '35%' in line:
-                            allocations[site_id]['gpu_compute'] = 70  # High-medium allocation
-                            allocations[site_id]['ai_focus'] = 35
-                        elif '30%' in line:
-                            allocations[site_id]['gpu_compute'] = 60  # Medium allocation
-                            allocations[site_id]['ai_focus'] = 30
-                        elif '25%' in line:
-                            allocations[site_id]['gpu_compute'] = 50  # Medium-low allocation
-                            allocations[site_id]['ai_focus'] = 25
+                    # Parse AI inference percentages
+                    if 'ai inference' in line or 'ai workload' in line:
+                        # Extract percentage numbers
+                        import re
+                        percentages = re.findall(r'(\d+)%', line)
+                        if percentages:
+                            ai_percentage = int(percentages[0])
+                            # Convert percentage to allocation units
+                            allocations[site_id]['gpu_compute'] = min(100, int(ai_percentage * 0.8))  # Scale to reasonable units
+                            allocations[site_id]['ai_focus'] = ai_percentage
                     
-                    # Parse Bitcoin mining allocations
-                    elif ('mining' in line or 'bitcoin' in line) and '%' in line:
-                        if '75%' in line:
-                            allocations[site_id]['mining_focus'] = 45  # High mining
-                            allocations[site_id]['asic_compute'] = 35
-                        elif '65%' in line:
-                            allocations[site_id]['mining_focus'] = 35  # Medium-high mining
-                            allocations[site_id]['asic_compute'] = 30
-                        elif '60%' in line:
-                            allocations[site_id]['mining_focus'] = 30  # Medium mining
-                            allocations[site_id]['asic_compute'] = 25
+                    # Parse Bitcoin mining percentages
+                    elif 'bitcoin mining' in line or 'mining' in line:
+                        import re
+                        percentages = re.findall(r'(\d+)%', line)
+                        if percentages:
+                            mining_percentage = int(percentages[0])
+                            allocations[site_id]['mining_focus'] = min(60, int(mining_percentage * 0.6))  # Scale to reasonable units
+                            allocations[site_id]['asic_compute'] = min(50, int(mining_percentage * 0.5))
                     
-                    # Parse capacity reductions
-                    elif 'reduce' in line and '%' in line:
-                        if '50%' in line:
-                            allocations[site_id]['gpu_compute'] = 25  # Reduced capacity
-                            allocations[site_id]['asic_compute'] = 15
-                        elif '60%' in line:
-                            allocations[site_id]['gpu_compute'] = 30  # Moderate reduction
-                            allocations[site_id]['asic_compute'] = 20
+                    # Parse "reduce operations" or "minimal operations"
+                    elif 'reduce' in line or 'minimal' in line or 'shut down' in line:
+                        allocations[site_id]['gpu_compute'] = 10  # Minimal AI operations
+                        allocations[site_id]['mining_focus'] = 5   # Minimal mining
+                        allocations[site_id]['asic_compute'] = 5
+                        allocations[site_id]['operation_mode'] = 'reduced'
                     
-                    # Parse increase recommendations
-                    elif 'increase' in line and '%' in line:
-                        if '15%' in line:
-                            allocations[site_id]['gpu_compute'] = 65  # Increased allocation
-                            allocations[site_id]['mining_focus'] = 30
-                        elif '20%' in line:
-                            allocations[site_id]['gpu_compute'] = 70  # Higher increase
-                            allocations[site_id]['mining_focus'] = 35
+                    # Parse "prioritize" or "focus on" recommendations
+                    elif 'prioritize' in line or 'focus' in line:
+                        if 'ai' in line or 'inference' in line:
+                            allocations[site_id]['gpu_compute'] = 80  # High AI focus
+                            allocations[site_id]['ai_focus'] = 70
+                            allocations[site_id]['mining_focus'] = 20
+                        elif 'mining' in line:
+                            allocations[site_id]['mining_focus'] = 60  # High mining focus
+                            allocations[site_id]['asic_compute'] = 40
+                            allocations[site_id]['gpu_compute'] = 30
         
-        # Apply Claude's specific site recommendations from the reasoning
+        # Enhanced parsing for market-driven decisions
         reasoning_lower = claude_reasoning.lower()
         
-        # Nordic Iceland - Premium AI hub
-        if 'nordic iceland' in reasoning_lower and 'premium' in reasoning_lower:
-            allocations['site_1_nordic'] = {
-                'gpu_compute': 80, 'ai_focus': 40, 'mining_focus': 30, 'tier_focus': 'premium'
-            }
+        # Look for overall market strategy recommendations
+        if 'shift to ai inference' in reasoning_lower or 'ai inference more profitable' in reasoning_lower:
+            # Apply AI-focused strategy to high-efficiency sites
+            for site_id in ['site_1_nordic', 'site_3_norway', 'site_2_canada']:
+                if site_id not in allocations:
+                    allocations[site_id] = {}
+                allocations[site_id]['gpu_compute'] = 85  # High AI allocation
+                allocations[site_id]['ai_focus'] = 75
+                allocations[site_id]['mining_focus'] = 25
+                allocations[site_id]['strategy'] = 'ai_focused'
         
-        # Norway Oslo - Premium AI hub  
-        if 'norway oslo' in reasoning_lower and 'premium' in reasoning_lower:
-            allocations['site_3_norway'] = {
-                'gpu_compute': 70, 'ai_focus': 35, 'mining_focus': 35, 'tier_focus': 'premium'
-            }
+        elif 'bitcoin mining more profitable' in reasoning_lower or 'focus on mining' in reasoning_lower:
+            # Apply mining-focused strategy to cost-effective sites
+            for site_id in ['site_4_singapore', 'site_5_texas', 'site_9_chile']:
+                if site_id not in allocations:
+                    allocations[site_id] = {}
+                allocations[site_id]['mining_focus'] = 70  # High mining allocation
+                allocations[site_id]['asic_compute'] = 50
+                allocations[site_id]['gpu_compute'] = 30
+                allocations[site_id]['strategy'] = 'mining_focused'
         
-        # Canada Vancouver - Standard AI hub
-        if 'canada vancouver' in reasoning_lower and 'standard' in reasoning_lower:
-            allocations['site_2_canada'] = {
-                'gpu_compute': 60, 'ai_focus': 35, 'mining_focus': 35, 'tier_focus': 'standard'
-            }
+        # Parse energy cost recommendations
+        if 'high energy cost' in reasoning_lower or 'expensive energy' in reasoning_lower:
+            # Reduce operations at high-cost sites
+            high_cost_sites = ['site_4_singapore', 'site_7_japan']
+            for site_id in high_cost_sites:
+                if site_id not in allocations:
+                    allocations[site_id] = {}
+                allocations[site_id]['gpu_compute'] = 20  # Reduced operations
+                allocations[site_id]['mining_focus'] = 15
+                allocations[site_id]['asic_compute'] = 10
+                allocations[site_id]['strategy'] = 'energy_conservation'
         
-        # Ireland Dublin - Standard workloads
-        if 'ireland dublin' in reasoning_lower and 'standard' in reasoning_lower:
-            allocations['site_6_ireland'] = {
-                'gpu_compute': 55, 'ai_focus': 30, 'mining_focus': 25, 'tier_focus': 'standard'
-            }
+        # Parse cooling efficiency recommendations
+        if 'cooling efficiency' in reasoning_lower or 'cold climate' in reasoning_lower:
+            # Maximize operations at efficient sites
+            efficient_sites = ['site_1_nordic', 'site_3_norway', 'site_2_canada']
+            for site_id in efficient_sites:
+                if site_id not in allocations:
+                    allocations[site_id] = {}
+                # Boost allocations for efficient sites
+                current_gpu = allocations[site_id].get('gpu_compute', 60)
+                current_mining = allocations[site_id].get('mining_focus', 30)
+                allocations[site_id]['gpu_compute'] = min(100, current_gpu + 15)
+                allocations[site_id]['mining_focus'] = min(60, current_mining + 10)
+                allocations[site_id]['strategy'] = 'efficiency_maximized'
         
-        # Chile Santiago - Flexible workloads
-        if 'chile santiago' in reasoning_lower and 'flexible' in reasoning_lower:
-            allocations['site_9_chile'] = {
-                'gpu_compute': 45, 'ai_focus': 25, 'mining_focus': 45, 'tier_focus': 'flexible'
-            }
+        # Apply specific site recommendations based on Claude's analysis
+        site_specific_patterns = {
+            'site_1_nordic': ['nordic iceland', 'iceland'],
+            'site_3_norway': ['norway oslo', 'norway', 'oslo'],
+            'site_2_canada': ['canada vancouver', 'vancouver', 'canada'],
+            'site_6_ireland': ['ireland dublin', 'dublin', 'ireland'],
+            'site_9_chile': ['chile santiago', 'santiago', 'chile'],
+            'site_10_germany': ['germany berlin', 'berlin', 'germany'],
+            'site_7_japan': ['japan tokyo', 'tokyo', 'japan'],
+            'site_8_australia': ['australia sydney', 'sydney', 'australia'],
+            'site_4_singapore': ['singapore'],
+            'site_5_texas': ['texas', 'texas usa']
+        }
         
-        # Singapore - Reduced capacity
-        if 'singapore' in reasoning_lower and 'reduce' in reasoning_lower:
-            allocations['site_4_singapore'] = {
-                'gpu_compute': 25, 'ai_focus': 15, 'asic_compute': 15, 'tier_focus': 'spot'
-            }
-        
-        # Texas - Reduced during peak
-        if 'texas' in reasoning_lower and 'reduce' in reasoning_lower:
-            allocations['site_5_texas'] = {
-                'gpu_compute': 30, 'ai_focus': 20, 'asic_compute': 20, 'tier_focus': 'flexible'
-            }
+        for site_id, patterns in site_specific_patterns.items():
+            for pattern in patterns:
+                if pattern in reasoning_lower:
+                    if site_id not in allocations:
+                        allocations[site_id] = {}
+                    
+                    # Look for specific recommendations near the site mention
+                    site_context = reasoning_lower[max(0, reasoning_lower.find(pattern) - 200):reasoning_lower.find(pattern) + 200]
+                    
+                    if 'reduce' in site_context or 'minimal' in site_context:
+                        allocations[site_id]['gpu_compute'] = 15
+                        allocations[site_id]['mining_focus'] = 10
+                        allocations[site_id]['operation_mode'] = 'reduced'
+                    elif 'maximize' in site_context or 'increase' in site_context:
+                        allocations[site_id]['gpu_compute'] = 90
+                        allocations[site_id]['mining_focus'] = 50
+                        allocations[site_id]['operation_mode'] = 'maximized'
+                    elif 'ai' in site_context and 'focus' in site_context:
+                        allocations[site_id]['gpu_compute'] = 80
+                        allocations[site_id]['ai_focus'] = 70
+                        allocations[site_id]['mining_focus'] = 30
+                        allocations[site_id]['tier_focus'] = 'premium'
     
     except Exception as e:
         print(f"Error parsing Claude recommendations: {e}")
@@ -1047,7 +1137,47 @@ async def request_sla(sla_request: SLARequest):
             used_hardware = max(current_allocation.get("gpu_compute", 0), current_allocation.get("asic_compute", 0))
         
         remaining_capacity = available_hardware - used_hardware
-        if remaining_capacity < sla_request.compute_units:
+        
+        # NEW: Competitive bid-based allocation for ASIC requests
+        if remaining_capacity < sla_request.compute_units and sla_request.compute_type == 'asic' and sla_request.custom_asic_price is not None:
+            # Check if we can displace Bitcoin mining with higher bid
+            try:
+                prices = global_state.get("current_prices", {})
+                hash_price = prices.get("hash_price", 0.05)
+                energy_price = prices.get("energy_price", 0.08)
+                
+                # Calculate Bitcoin mining profit per ASIC per hour at this site
+                asic_hashrate = 100  # TH/s per ASIC
+                site_energy_multiplier = site_config['energy_cost_multiplier']
+                site_power_cost_per_hour = energy_price * site_energy_multiplier * 3.0  # 3kW per ASIC
+                mining_revenue_per_hour = hash_price * asic_hashrate
+                mining_profit_per_hour = mining_revenue_per_hour - site_power_cost_per_hour
+                
+                # If custom price beats mining profit, we can "displace" mining operations
+                if sla_request.custom_asic_price > mining_profit_per_hour:
+                    # Calculate how many ASICs we can theoretically displace from mining
+                    total_asic_capacity = available_hardware  # Total ASICs at this site
+                    
+                    # We can use up to the total ASIC capacity if bid is competitive
+                    if sla_request.compute_units <= total_asic_capacity:
+                        remaining_capacity = total_asic_capacity - used_hardware
+                        # Allow the request if we have enough total capacity (displacing mining)
+                        if remaining_capacity >= sla_request.compute_units:
+                            pass  # Continue with allocation
+                        else:
+                            # Even with displacement, not enough capacity
+                            continue
+                    else:
+                        continue  # Request too large even with full displacement
+                else:
+                    # Bid not competitive enough to displace mining
+                    continue
+            except Exception as e:
+                # If profitability calculation fails, fall back to standard capacity check
+                if remaining_capacity < sla_request.compute_units:
+                    continue
+        elif remaining_capacity < sla_request.compute_units:
+            # Standard capacity check for non-competitive bids
             continue  # Not enough capacity
         
         # Base score from cooling efficiency and energy cost
@@ -1097,15 +1227,69 @@ async def request_sla(sla_request: SLARequest):
     
     # Calculate estimated revenue for this SLA
     site_config = MULTI_SITE_CONFIG[optimal_site]
-    base_rate = 100  # $100 per compute unit per hour
-    tier_multiplier = SLA_TIERS[sla_request.tier]["price_multiplier"]
-    efficiency_bonus = site_config["climate"]["cooling_efficiency"]
     
-    # Claude optimization bonus
+    # Initialize claude_bonus for all pricing types
     claude_bonus = 1.1 if optimal_site in preferred_sites else 1.0
     
-    estimated_revenue = (sla_request.compute_units * sla_request.duration_hours * 
-                        base_rate * tier_multiplier * efficiency_bonus * claude_bonus)
+    # Handle custom ASIC pricing vs standard pricing
+    if sla_request.compute_type == 'asic' and sla_request.custom_asic_price is not None:
+        # Use custom ASIC pricing - user is offering competitive rate
+        custom_price_per_hour = sla_request.custom_asic_price
+        
+        # Get current Bitcoin mining profitability to validate the offer
+        try:
+            prices = global_state.get("current_prices", {})
+            hash_price = prices.get("hash_price", 0.05)
+            energy_price = prices.get("energy_price", 0.08)
+            
+            # Calculate Bitcoin mining profit per ASIC per hour at this site
+            asic_hashrate = 100  # TH/s per ASIC
+            site_energy_multiplier = site_config['energy_cost_multiplier']
+            site_power_cost_per_hour = energy_price * site_energy_multiplier * 3.0  # 3kW per ASIC
+            mining_revenue_per_hour = hash_price * asic_hashrate
+            mining_profit_per_hour = mining_revenue_per_hour - site_power_cost_per_hour
+            
+            # Check if custom price beats mining profitability
+            is_competitive = custom_price_per_hour > mining_profit_per_hour
+            competitive_advantage = custom_price_per_hour - mining_profit_per_hour if is_competitive else 0
+            
+            # Calculate total revenue using custom pricing
+            estimated_revenue = sla_request.compute_units * sla_request.duration_hours * custom_price_per_hour
+            
+            # Add competitive pricing details to SLA record
+            pricing_details = {
+                "custom_asic_pricing": True,
+                "custom_price_per_hour": custom_price_per_hour,
+                "mining_profit_per_hour": round(mining_profit_per_hour, 4),
+                "is_competitive": is_competitive,
+                "competitive_advantage": round(competitive_advantage, 4),
+                "site_energy_cost_multiplier": site_energy_multiplier
+            }
+            
+        except Exception as e:
+            # Fallback if profitability calculation fails
+            estimated_revenue = sla_request.compute_units * sla_request.duration_hours * custom_price_per_hour
+            pricing_details = {
+                "custom_asic_pricing": True,
+                "custom_price_per_hour": custom_price_per_hour,
+                "profitability_check_error": str(e)
+            }
+    else:
+        # Use standard tier-based pricing
+        base_rate = 100  # $100 per compute unit per hour
+        tier_multiplier = SLA_TIERS[sla_request.tier]["price_multiplier"]
+        efficiency_bonus = site_config["climate"]["cooling_efficiency"]
+        
+        estimated_revenue = (sla_request.compute_units * sla_request.duration_hours * 
+                            base_rate * tier_multiplier * efficiency_bonus * claude_bonus)
+        
+        pricing_details = {
+            "custom_asic_pricing": False,
+            "base_rate": base_rate,
+            "tier_multiplier": tier_multiplier,
+            "efficiency_bonus": efficiency_bonus,
+            "claude_bonus": claude_bonus
+        }
     
     sla_record = {
         "sla_id": sla_id,
@@ -1118,7 +1302,8 @@ async def request_sla(sla_request: SLARequest):
         "expires_at": expiration_time.isoformat(),
         "estimated_revenue": estimated_revenue,
         "status": "active",
-        "claude_optimized": optimal_site in preferred_sites
+        "claude_optimized": optimal_site in preferred_sites,
+        "pricing_details": pricing_details
     }
     
     # Add to active SLAs (in-memory for compatibility)
@@ -1150,7 +1335,15 @@ async def request_sla(sla_request: SLARequest):
         "expires_at": expiration_time.isoformat(),
         "status": "allocated",
         "claude_optimized": optimal_site in preferred_sites,
-        "optimization_bonus": f"{((claude_bonus - 1) * 100):.0f}%" if claude_bonus > 1 else "0%"
+        "optimization_bonus": f"{((claude_bonus - 1) * 100):.0f}%" if claude_bonus > 1 else "0%",
+        "pricing_details": pricing_details,
+        # NEW: Add capacity and displacement information
+        "capacity_info": {
+            "site_total_capacity": site_hardware_inventory.get(optimal_site, {}).get("inference", {}).get(sla_request.compute_type, {}).get("available", 0),
+            "units_allocated": sla_request.compute_units,
+            "competitive_displacement": sla_request.compute_type == 'asic' and sla_request.custom_asic_price is not None and pricing_details.get("is_competitive", False),
+            "displacement_details": f"Displaced Bitcoin mining operations with {pricing_details.get('competitive_advantage', 0):.2f}$/hr advantage" if sla_request.compute_type == 'asic' and sla_request.custom_asic_price is not None and pricing_details.get("is_competitive", False) else None
+        }
     }
 
 async def request_sla_fallback(sla_request: SLARequest, estimated_power_mw: float):
@@ -1171,6 +1364,14 @@ async def request_sla_fallback(sla_request: SLARequest, estimated_power_mw: floa
         estimated_revenue = (sla_request.compute_units * sla_request.duration_hours * 
                             100 * SLA_TIERS[sla_request.tier]["price_multiplier"])
         
+        # Basic pricing details for fallback
+        pricing_details = {
+            "custom_asic_pricing": sla_request.compute_type == 'asic' and sla_request.custom_asic_price is not None,
+            "custom_price_per_hour": sla_request.custom_asic_price if sla_request.compute_type == 'asic' and sla_request.custom_asic_price is not None else None,
+            "is_competitive": False,  # Fallback doesn't do competitive analysis
+            "competitive_advantage": 0
+        }
+        
         sla_record = {
             "sla_id": sla_id,
             "tier": sla_request.tier,
@@ -1182,7 +1383,8 @@ async def request_sla_fallback(sla_request: SLARequest, estimated_power_mw: floa
             "expires_at": expiration_time.isoformat(),
             "estimated_revenue": estimated_revenue,
             "status": "active",
-            "claude_optimized": False
+            "claude_optimized": False,
+            "pricing_details": pricing_details
         }
         
         if site_id not in global_state["active_slas"]:
@@ -1205,7 +1407,14 @@ async def request_sla_fallback(sla_request: SLARequest, estimated_power_mw: floa
             "estimated_revenue": round(estimated_revenue, 2),
             "status": "allocated_fallback",
             "claude_optimized": False,
-            "optimization_bonus": "0%"
+            "optimization_bonus": "0%",
+            "pricing_details": pricing_details,
+            "capacity_info": {
+                "site_total_capacity": site_hardware_inventory.get(site_id, {}).get("inference", {}).get(sla_request.compute_type, {}).get("available", 0),
+                "units_allocated": sla_request.compute_units,
+                "competitive_displacement": False,  # Fallback doesn't do displacement
+                "displacement_details": None
+            }
         }
     
     raise HTTPException(status_code=400, detail="No available capacity for this SLA request")
@@ -1763,6 +1972,86 @@ async def periodic_sla_usage_tracking():
         except Exception as e:
             print(f"⚠️ Error in SLA usage tracking: {e}")
             await asyncio.sleep(60)  # Retry in 1 minute on error
+
+@app.get("/api/mining/profitability")
+async def get_mining_profitability():
+    """Get current Bitcoin mining profitability data for competitive ASIC pricing"""
+    try:
+        # Get current MARA pricing data
+        prices = global_state.get("current_prices", {})
+        if not prices:
+            # Fallback to API call if not in global state
+            prices = await get_mara_prices()
+        
+        hash_price = prices.get("hash_price", 0.05)  # Default $0.05 per TH/s
+        energy_price = prices.get("energy_price", 0.08)  # Default $0.08 per kWh
+        
+        # Calculate ASIC mining profitability per unit per hour
+        asic_hashrate = 100  # TH/s per ASIC (typical)
+        asic_power_consumption = 3.0  # kW per ASIC
+        
+        # Revenue per ASIC per hour
+        mining_revenue_per_hour = hash_price * asic_hashrate  # $/TH/s * TH/s = $/hour
+        
+        # Cost per ASIC per hour  
+        power_cost_per_hour = energy_price * asic_power_consumption  # $/kWh * kW = $/hour
+        
+        # Net profit per ASIC per hour
+        net_profit_per_hour = mining_revenue_per_hour - power_cost_per_hour
+        profit_margin = ((net_profit_per_hour / mining_revenue_per_hour) * 100) if mining_revenue_per_hour > 0 else 0
+        
+        # Calculate site-specific profitability
+        site_profitability = {}
+        for site_id, site_config in MULTI_SITE_CONFIG.items():
+            site_energy_multiplier = site_config['energy_cost_multiplier']
+            site_energy_cost = energy_price * site_energy_multiplier
+            site_power_cost_per_hour = site_energy_cost * asic_power_consumption
+            site_net_profit = mining_revenue_per_hour - site_power_cost_per_hour
+            site_profit_margin = ((site_net_profit / mining_revenue_per_hour) * 100) if mining_revenue_per_hour > 0 else 0
+            
+            site_profitability[site_id] = {
+                "site_name": site_config["name"],
+                "energy_cost_multiplier": site_energy_multiplier,
+                "site_energy_cost_per_kwh": round(site_energy_cost, 4),
+                "power_cost_per_hour": round(site_power_cost_per_hour, 4),
+                "net_profit_per_hour": round(site_net_profit, 4),
+                "profit_margin_percent": round(site_profit_margin, 2),
+                "break_even_price": round(site_net_profit, 4) if site_net_profit > 0 else 0,
+                "recommended_competitive_price": round(site_net_profit * 1.1, 4) if site_net_profit > 0 else round(mining_revenue_per_hour * 0.9, 4)  # 10% above mining profit or 10% below mining revenue
+            }
+        
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "global_mining_data": {
+                "hash_price": hash_price,
+                "energy_price": energy_price,
+                "asic_specs": {
+                    "hashrate_ths": asic_hashrate,
+                    "power_consumption_kw": asic_power_consumption
+                },
+                "mining_revenue_per_hour": round(mining_revenue_per_hour, 4),
+                "avg_power_cost_per_hour": round(power_cost_per_hour, 4),
+                "avg_net_profit_per_hour": round(net_profit_per_hour, 4),
+                "avg_profit_margin_percent": round(profit_margin, 2)
+            },
+            "site_specific_profitability": site_profitability,
+            "pricing_recommendations": {
+                "minimum_competitive_price": round(max(site_profitability[site]["break_even_price"] for site in site_profitability), 4),
+                "average_competitive_price": round(sum(site_profitability[site]["recommended_competitive_price"] for site in site_profitability) / len(site_profitability), 4),
+                "premium_competitive_price": round(max(site_profitability[site]["recommended_competitive_price"] for site in site_profitability), 4)
+            },
+            "market_analysis": {
+                "is_mining_profitable": net_profit_per_hour > 0,
+                "best_mining_sites": sorted(
+                    [(site_id, data["profit_margin_percent"]) for site_id, data in site_profitability.items()],
+                    key=lambda x: x[1], reverse=True
+                )[:3],
+                "arbitrage_opportunity": "High" if profit_margin > 20 else "Medium" if profit_margin > 10 else "Low"
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to calculate mining profitability: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

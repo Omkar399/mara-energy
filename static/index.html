@@ -256,11 +256,14 @@
                     <div class="sla-management-header">
                         <h2><i class="fas fa-handshake"></i> SLA Management Dashboard</h2>
                         <div class="sla-management-controls">
-                            <button id="refreshSLAsBtn" class="btn btn-secondary">
+                            <button id="refreshSLAsBtn" class="btn btn-primary">
                                 <i class="fas fa-sync-alt"></i> Refresh
                             </button>
                             <button id="exportSLAsBtn" class="btn btn-secondary">
                                 <i class="fas fa-download"></i> Export
+                            </button>
+                            <button id="clearAllDataBtn" class="btn btn-danger">
+                                <i class="fas fa-trash"></i> Clear All Data
                             </button>
                         </div>
                     </div>
@@ -300,6 +303,66 @@
                                         <label for="computeUnits">Compute Units</label>
                                         <input type="number" id="computeUnits" class="form-control" min="1" max="1000" placeholder="e.g., 50 GPUs or 100 ASICs">
                                         <small class="form-hint">Number of compute units to reserve</small>
+                                    </div>
+                                </div>
+                                
+                                <!-- ASIC Competitive Pricing Section (shown only for ASIC compute type) -->
+                                <div id="asicPricingSection" class="form-section asic-pricing-section" style="display: none;">
+                                    <div class="pricing-header">
+                                        <h4><i class="fas fa-coins"></i> ASIC Competitive Pricing</h4>
+                                        <p class="pricing-description">Set your price per ASIC per hour to compete with Bitcoin mining profitability</p>
+                                    </div>
+                                    
+                                    <div class="mining-profitability-info" id="miningProfitabilityInfo">
+                                        <div class="profitability-loading">
+                                            <i class="fas fa-spinner fa-spin"></i> Loading current Bitcoin mining profitability...
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label for="customAsicPrice">Your Price per ASIC per Hour ($)</label>
+                                            <input type="number" id="customAsicPrice" class="form-control" step="0.01" min="0" placeholder="e.g., 4.50">
+                                            <small class="form-hint">Enter your competitive price to beat Bitcoin mining profits</small>
+                                        </div>
+                                        <div class="form-group">
+                                            <div class="competitive-analysis" id="competitiveAnalysis">
+                                                <div class="analysis-item">
+                                                    <span class="analysis-label">Your Offer:</span>
+                                                    <span class="analysis-value" id="yourOfferValue">$0.00/hr</span>
+                                                </div>
+                                                <div class="analysis-item">
+                                                    <span class="analysis-label">Mining Profit:</span>
+                                                    <span class="analysis-value" id="miningProfitValue">$0.00/hr</span>
+                                                </div>
+                                                <div class="analysis-item">
+                                                    <span class="analysis-label">Advantage:</span>
+                                                    <span class="analysis-value" id="competitiveAdvantage">$0.00/hr</span>
+                                                </div>
+                                                <div class="analysis-status" id="analysisStatus">
+                                                    <span class="status-indicator"></span>
+                                                    <span class="status-text">Enter price to see analysis</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="pricing-recommendations" id="pricingRecommendations">
+                                        <h5><i class="fas fa-lightbulb"></i> Pricing Recommendations</h5>
+                                        <div class="recommendation-grid">
+                                            <div class="recommendation-item">
+                                                <span class="rec-label">Minimum Competitive:</span>
+                                                <span class="rec-value" id="minCompetitivePrice">$0.00/hr</span>
+                                            </div>
+                                            <div class="recommendation-item">
+                                                <span class="rec-label">Average Competitive:</span>
+                                                <span class="rec-value" id="avgCompetitivePrice">$0.00/hr</span>
+                                            </div>
+                                            <div class="recommendation-item">
+                                                <span class="rec-label">Premium Competitive:</span>
+                                                <span class="rec-value" id="premiumCompetitivePrice">$0.00/hr</span>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                                 
@@ -367,7 +430,7 @@
                     </div>
 
                     <!-- SLA Statistics -->
-                    <div class="sla-stats-grid">
+                    <div class="sla-stats-grid" id="slaStatsGrid">
                         <div class="sla-stat-card">
                             <div class="stat-icon">
                                 <i class="fas fa-clipboard-list"></i>
