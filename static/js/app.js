@@ -78,72 +78,23 @@ function switchTab(tabId) {
 // SLA Management Functions
 async function loadSLAsOnStartup() {
     try {
-        // Load from localStorage first (simulating persistent storage)
-        const storedSLAs = localStorage.getItem('activeSLAs');
-        if (storedSLAs) {
-            activeSLAs = JSON.parse(storedSLAs);
-        }
+        // Always load from database instead of localStorage
+        const success = await fetchSLAsFromBackend();
         
-        // Add some sample SLAs if none exist
-        if (activeSLAs.length === 0) {
-            activeSLAs = [
-                {
-                    id: 'SLA-001',
-                    companyName: 'Tesla AI Division',
-                    tier: 'premium',
-                    computeType: 'gpu',
-                    computeUnits: 500,
-                    duration: 24,
-                    region: 'nordic',
-                    status: 'active',
-                    allocatedSite: 'Nordic Iceland',
-                    createdAt: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
-                    expiresAt: new Date(Date.now() + 82800000).toISOString(), // 23 hours from now
-                    cost: 11550,
-                    uptime: 99.9,
-                    currentUptime: 99.95
-                },
-                {
-                    id: 'SLA-002',
-                    companyName: 'OpenAI Research',
-                    tier: 'standard',
-                    computeType: 'asic',
-                    computeUnits: 100,
-                    duration: 12,
-                    region: 'asia',
-                    status: 'active',
-                    allocatedSite: 'Singapore',
-                    createdAt: new Date(Date.now() - 7200000).toISOString(), // 2 hours ago
-                    expiresAt: new Date(Date.now() + 36000000).toISOString(), // 10 hours from now
-                    cost: 7200,
-                    uptime: 95.0,
-                    currentUptime: 96.2
-                },
-                {
-                    id: 'SLA-003',
-                    companyName: 'Meta AI Labs',
-                    tier: 'flexible',
-                    computeType: 'mixed',
-                    computeUnits: 200,
-                    duration: 6,
-                    region: 'americas',
-                    status: 'expired',
-                    allocatedSite: 'Texas',
-                    createdAt: new Date(Date.now() - 28800000).toISOString(), // 8 hours ago
-                    expiresAt: new Date(Date.now() - 7200000).toISOString(), // 2 hours ago
-                    cost: 2160,
-                    uptime: 90.0,
-                    currentUptime: 91.5
-                }
-            ];
-            saveSLAsToStorage();
+        if (success) {
+            updateSLAStats();
+            addActivityItem('system', 'SLAs Loaded', `${activeSLAs.length} SLA agreements loaded from database`, 'fas fa-handshake');
+        } else {
+            // If database fetch fails, start with empty array
+            activeSLAs = [];
+            updateSLAStats();
+            addActivityItem('system', 'SLAs Initialized', 'Started with empty SLA database', 'fas fa-handshake');
         }
-        
-        updateSLAStats();
-        addActivityItem('system', 'SLAs Loaded', `${activeSLAs.length} SLA agreements loaded from storage`, 'fas fa-handshake');
     } catch (error) {
         console.error('Error loading SLAs:', error);
-        addActivityItem('error', 'SLA Load Error', 'Failed to load SLA data from storage', 'fas fa-exclamation-triangle');
+        activeSLAs = [];
+        updateSLAStats();
+        addActivityItem('error', 'SLA Load Error', 'Failed to load SLA data from database', 'fas fa-exclamation-triangle');
     }
 }
 
@@ -153,6 +104,47 @@ function saveSLAsToStorage() {
     } catch (error) {
         console.error('Error saving SLAs:', error);
     }
+}
+
+// Fetch SLAs from backend API to keep frontend synchronized
+async function fetchSLAsFromBackend() {
+    try {
+        const response = await fetch(`${API_BASE}/api/sla/active`);
+        if (response.ok) {
+            const data = await response.json();
+            const backendSLAs = data.active_slas || [];
+            
+            // Convert backend SLA format to frontend format
+            const convertedSLAs = backendSLAs.map(sla => ({
+                id: sla.sla_id || `SLA-${Date.now()}`,
+                companyName: sla.company_name || 'Unknown Client',
+                tier: sla.tier,
+                computeType: sla.compute_type,
+                computeUnits: sla.compute_units,
+                duration: sla.duration_hours,
+                siteId: sla.site_id,
+                allocatedSite: sla.site_name || 'Unknown Site',
+                status: sla.status || 'active',
+                createdAt: sla.created_at,
+                expiresAt: sla.expires_at,
+                cost: sla.estimated_revenue || 0,
+                claudeOptimized: sla.claude_optimized || false,
+                region: sla.preferred_region || 'any',
+                uptime: 95.0,  // Default SLA uptime
+                currentUptime: 95.0  // Default current uptime
+            }));
+            
+            // Replace activeSLAs completely with database data (don't merge)
+            activeSLAs = convertedSLAs;
+            saveSLAsToStorage();
+            updateSLAStats();
+            
+            return true;
+        }
+    } catch (error) {
+        console.error('Error fetching SLAs from backend:', error);
+    }
+    return false;
 }
 
 function updateSLAStats() {
@@ -170,10 +162,13 @@ function updateSLAStats() {
 }
 
 function loadSLAManagement() {
-    updateSLAStats();
-    renderSLAStats();
-    renderSLATable();
-    setupSLAFilters();
+    // Fetch latest SLAs from backend first
+    fetchSLAsFromBackend().then(() => {
+        updateSLAStats();
+        renderSLAStats();
+        renderSLATable();
+        setupSLAFilters();
+    });
 }
 
 function loadMaintenanceOptimization() {
@@ -244,7 +239,8 @@ function renderSLATable() {
             <td>${sla.id}</td>
             <td class="company-name">${sla.companyName || 'Unknown Client'}</td>
             <td><span class="sla-tier-badge ${sla.tier}">${sla.tier}</span></td>
-            <td>${sla.computeUnits.toLocaleString()} ${sla.computeType.toUpperCase()}</td>
+            <td>${sla.computeType.toUpperCase()}</td>
+            <td>${sla.computeUnits.toLocaleString()}</td>
             <td>${sla.allocatedSite}</td>
             <td>${sla.duration} hrs</td>
             <td>${formatCurrency(sla.cost)}</td>
@@ -305,7 +301,8 @@ function renderFilteredSLATable(slas) {
             <td>${sla.id}</td>
             <td class="company-name">${sla.companyName || 'Unknown Client'}</td>
             <td><span class="sla-tier-badge ${sla.tier}">${sla.tier}</span></td>
-            <td>${sla.computeUnits.toLocaleString()} ${sla.computeType.toUpperCase()}</td>
+            <td>${sla.computeType.toUpperCase()}</td>
+            <td>${sla.computeUnits.toLocaleString()}</td>
             <td>${sla.allocatedSite}</td>
             <td>${sla.duration} hrs</td>
             <td>${formatCurrency(sla.cost)}</td>
@@ -795,6 +792,12 @@ async function requestSLAWithFeedback() {
     const preferredRegion = document.getElementById('preferredRegion').value;
     const companyName = document.getElementById('companyName').value.trim();
     
+    // Add null checks before using toUpperCase()
+    if (!tier || !computeType) {
+        showNotification('⚠️ Please select both SLA tier and compute type', 'warning', 4000);
+        return;
+    }
+    
     if (!validateSLAInputs(tier, computeUnits, durationHours, companyName)) {
         return;
     }
@@ -821,7 +824,7 @@ async function requestSLAWithFeedback() {
                 compute_type: computeType,
                 compute_units: computeUnits,
                 duration_hours: durationHours,
-                preferred_region: preferredRegion,
+                preferred_region: preferredRegion === 'any' ? null : preferredRegion,
                 company_name: companyName
             })
         });
@@ -841,33 +844,14 @@ async function requestSLAWithFeedback() {
         const expirationDate = new Date(data.expires_at);
         const expirationStr = expirationDate.toLocaleString();
         
-        // Add the new SLA to our management system
-        const newSLA = {
-            id: `SLA-${String(activeSLAs.length + 1).padStart(3, '0')}`,
-            companyName: companyName || 'Unknown Client',
-            tier: tier,
-            computeType: computeType,
-            computeUnits: data.compute_units_allocated,
-            duration: durationHours,
-            region: preferredRegion,
-            status: 'active',
-            allocatedSite: siteName,
-            createdAt: new Date().toISOString(),
-            expiresAt: data.expires_at,
-            cost: data.estimated_revenue,
-            uptime: data.estimated_uptime,
-            currentUptime: data.estimated_uptime + (Math.random() * 0.5 - 0.25) // Slight variation from guaranteed
-        };
-        
-        activeSLAs.push(newSLA);
-        saveSLAsToStorage();
-        updateSLAStats();
+        // Fetch updated SLAs from backend to keep synchronized
+        await fetchSLAsFromBackend();
         
         showNotification(`✅ ${tier.toUpperCase()} SLA allocated successfully!\n🏢 Client: ${companyName || 'Unknown Client'}\n📍 Site: ${siteName}\n💻 Compute: ${data.compute_units_allocated} ${data.compute_type.toUpperCase()}\n⚡ Est. Power: ${data.estimated_power_mw} MW\n💰 Est. Revenue: ${formatCurrency(data.estimated_revenue)}\n⏱️ Duration: ${durationHours} hours\n🎯 Uptime: ${data.estimated_uptime}%\n⏰ Expires: ${expirationStr}`, 'success', 8000);
         
         // Add detailed activity log with workload allocation info
         addActivityItem('sla', 'SLA Request Approved', 
-            `${tier.toUpperCase()} SLA ${newSLA.id} for ${companyName || 'Unknown Client'} allocated to ${siteName}: ${data.compute_units_allocated} ${data.compute_type.toUpperCase()} units (${data.estimated_power_mw} MW) with ${data.estimated_uptime}% uptime guarantee. Est. revenue: ${formatCurrency(data.estimated_revenue)}. Expires: ${expirationStr}`, 
+            `${tier.toUpperCase()} SLA for ${companyName || 'Unknown Client'} allocated to ${siteName}: ${data.compute_units_allocated} ${data.compute_type.toUpperCase()} units (${data.estimated_power_mw} MW) with ${data.estimated_uptime}% uptime guarantee. Est. revenue: ${formatCurrency(data.estimated_revenue)}. Expires: ${expirationStr}`, 
             'fas fa-handshake');
         
         // Show workload impact
@@ -886,6 +870,11 @@ async function requestSLAWithFeedback() {
         
         // Show active SLAs summary
         await updateActiveSLAsSummary();
+        
+        // Refresh SLA management table to show the new SLA
+        if (document.querySelector('[data-tab="sla-management"]').classList.contains('active')) {
+            loadSLAManagement();
+        }
         
         // Trigger auto-optimization if enabled
         if (document.getElementById('autoOptimizeToggle').checked) {

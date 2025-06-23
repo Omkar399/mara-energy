@@ -434,12 +434,14 @@ body::before {
     backdrop-filter: blur(10px);
     border: 1px solid var(--glass-border);
     border-radius: 1rem;
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: hidden;
     margin-bottom: 2rem;
 }
 
 .sla-table {
     width: 100%;
+    min-width: 1200px;
     border-collapse: collapse;
 }
 

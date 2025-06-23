@@ -11,7 +11,7 @@ class SLADatabase:
         self.db_path = db_path
     
     async def initialize(self):
-        """Initialize the database with required tables"""
+        """Initialize the database and create tables"""
         async with aiosqlite.connect(self.db_path) as db:
             # Create SLAs table
             await db.execute("""
@@ -23,6 +23,7 @@ class SLADatabase:
                     duration_hours INTEGER NOT NULL,
                     site_id TEXT NOT NULL,
                     site_name TEXT NOT NULL,
+                    company_name TEXT,
                     created_at TEXT NOT NULL,
                     expires_at TEXT NOT NULL,
                     estimated_revenue REAL NOT NULL,
@@ -69,6 +70,25 @@ class SLADatabase:
             await db.execute("CREATE INDEX IF NOT EXISTS idx_usage_timestamp ON sla_usage(timestamp)")
             
             await db.commit()
+            
+            # Run migrations
+            await self._run_migrations()
+    
+    async def _run_migrations(self):
+        """Run database migrations"""
+        async with aiosqlite.connect(self.db_path) as db:
+            # Check if company_name column exists, if not add it
+            try:
+                cursor = await db.execute("PRAGMA table_info(slas)")
+                columns = await cursor.fetchall()
+                column_names = [col[1] for col in columns]
+                
+                if 'company_name' not in column_names:
+                    await db.execute("ALTER TABLE slas ADD COLUMN company_name TEXT")
+                    await db.commit()
+                    print("✅ Added company_name column to slas table")
+            except Exception as e:
+                print(f"⚠️ Migration error: {e}")
     
     async def create_sla(self, sla_data: Dict) -> bool:
         """Create a new SLA record"""
@@ -77,9 +97,9 @@ class SLADatabase:
                 await db.execute("""
                     INSERT INTO slas (
                         sla_id, tier, compute_type, compute_units, duration_hours,
-                        site_id, site_name, created_at, expires_at, estimated_revenue,
+                        site_id, site_name, company_name, created_at, expires_at, estimated_revenue,
                         status, claude_optimized, preferred_region, metadata
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     sla_data['sla_id'],
                     sla_data['tier'],
@@ -88,6 +108,7 @@ class SLADatabase:
                     sla_data['duration_hours'],
                     sla_data['site_id'],
                     sla_data.get('site_name', ''),
+                    sla_data.get('company_name', ''),
                     sla_data['created_at'],
                     sla_data['expires_at'],
                     sla_data['estimated_revenue'],

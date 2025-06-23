@@ -256,6 +256,7 @@ class SLARequest(BaseModel):
     compute_units: int  # Number of compute units
     duration_hours: int
     preferred_region: Optional[str] = None
+    company_name: Optional[str] = None
 
 # New models for Predictive Maintenance and Hardware Optimization
 class HardwareMetrics(BaseModel):
@@ -356,13 +357,13 @@ async def get_mara_inventory():
             # Return mock data if API fails
             return {
                 "inference": {
-                    "asic": {"power": 15000, "tokens": 50000},
-                    "gpu": {"power": 5000, "tokens": 1000}
+                    "asic": {"power": 1.5, "tokens": 50000},  # 1.5 kW per ASIC unit (realistic for inference ASICs)
+                    "gpu": {"power": 0.45, "tokens": 1000}   # 0.45 kW per GPU unit (RTX 4090 level)
                 },
                 "miners": {
-                    "air": {"hashrate": 1000, "power": 3500},
-                    "hydro": {"hashrate": 5000, "power": 5000},
-                    "immersion": {"hashrate": 10000, "power": 10000}
+                    "air": {"hashrate": 1000, "power": 1.37},      # 1.37 kW per air miner (Antminer S9 level)
+                    "hydro": {"hashrate": 5000, "power": 2.95},    # 2.95 kW per hydro miner (S19j Pro level) 
+                    "immersion": {"hashrate": 10000, "power": 3.51} # 3.51 kW per immersion miner (S21 Pro level)
                 }
             }
 
@@ -624,14 +625,17 @@ async def get_sites_status():
         # Get active SLA summary for this site
         sla_summary = get_active_sla_summary(site_id)
         
-        # Calculate power usage based on actual hardware
-        power_used = 0
+        # Calculate power usage based on actual hardware (in kW, convert to MW)
+        power_used_kw = 0
         if site_inventory:
-            power_used += current_allocation["gpu_compute"] * site_inventory["inference"]["gpu"]["power"]
-            power_used += current_allocation["asic_compute"] * site_inventory["inference"]["asic"]["power"]
-            power_used += current_allocation["air_miners"] * site_inventory["miners"]["air"]["power"]
-            power_used += current_allocation["hydro_miners"] * site_inventory["miners"]["hydro"]["power"]
-            power_used += current_allocation["immersion_miners"] * site_inventory["miners"]["immersion"]["power"]
+            power_used_kw += current_allocation["gpu_compute"] * site_inventory["inference"]["gpu"]["power"]
+            power_used_kw += current_allocation["asic_compute"] * site_inventory["inference"]["asic"]["power"]
+            power_used_kw += current_allocation["air_miners"] * site_inventory["miners"]["air"]["power"]
+            power_used_kw += current_allocation["hydro_miners"] * site_inventory["miners"]["hydro"]["power"]
+            power_used_kw += current_allocation["immersion_miners"] * site_inventory["miners"]["immersion"]["power"]
+        
+        # Convert from kW to MW for display
+        power_used = round(power_used_kw / 1000, 3)  # Convert kW to MW with 3 decimal precision
         
         # Weather simulation
         weather = simulate_weather(site_config["climate"])
@@ -742,6 +746,9 @@ async def optimize_global_allocation():
     # Parse Claude's recommendations and implement them
     claude_allocations = parse_claude_recommendations(claude_reasoning, site_data)
     
+    print(f"DEBUG: Claude allocations parsed: {claude_allocations}")
+    print(f"DEBUG: Number of sites with allocations: {len(claude_allocations)}")
+    
     # Implement Claude's optimization strategy
     total_revenue = 0
     climate_savings = 0
@@ -750,12 +757,15 @@ async def optimize_global_allocation():
         # Get Claude's recommended allocation for this site
         claude_allocation = claude_allocations.get(site_id, {})
         
+        print(f"DEBUG: Processing {site_id}, Claude allocation: {claude_allocation}")
+        
         # Apply Claude's recommendations or use intelligent fallback
         if claude_allocation:
             # Use Claude's specific recommendations
             gpu_allocation = claude_allocation.get("gpu_compute", 0)
             asic_allocation = claude_allocation.get("asic_compute", 0)
             mining_allocation = claude_allocation.get("mining_focus", 0)
+            print(f"DEBUG: Using Claude allocation for {site_id}: GPU={gpu_allocation}, ASIC={asic_allocation}, Mining={mining_allocation}")
         else:
             # Intelligent fallback based on site characteristics
             cooling_efficiency = site_config["climate"]["cooling_efficiency"]
@@ -775,15 +785,19 @@ async def optimize_global_allocation():
             gpu_allocation = base_gpu
             asic_allocation = base_asic
             mining_allocation = base_mining
+            print(f"DEBUG: Using fallback allocation for {site_id}: GPU={gpu_allocation}, ASIC={asic_allocation}, Mining={mining_allocation}")
         
         # Store allocation in global state
-        global_state["site_allocations"][site_id] = {
+        allocation_to_store = {
             "gpu_compute": gpu_allocation,
             "asic_compute": asic_allocation,
             "air_miners": mining_allocation,
             "hydro_miners": mining_allocation // 2,
             "immersion_miners": mining_allocation // 4 if site_config["climate"]["cooling_efficiency"] > 0.8 else 0
         }
+        
+        global_state["site_allocations"][site_id] = allocation_to_store
+        print(f"DEBUG: Stored allocation for {site_id}: {allocation_to_store}")
         
         # Calculate revenue based on actual allocation
         site_revenue = calculate_site_revenue(
@@ -799,6 +813,8 @@ async def optimize_global_allocation():
             climate_savings += site_revenue * 0.35  # 35% savings for high efficiency
         elif site_config["climate"]["cooling_efficiency"] > 0.6:
             climate_savings += site_revenue * 0.20  # 20% savings for medium efficiency
+    
+    print(f"DEBUG: Final global_state site_allocations: {global_state.get('site_allocations', {})}")
     
     # Apply Claude's SLA distribution recommendations
     implement_claude_sla_strategy(claude_reasoning)
@@ -824,6 +840,9 @@ def parse_claude_recommendations(claude_reasoning: str, site_data: Dict) -> Dict
     allocations = {}
     
     try:
+        print(f"DEBUG: Starting to parse Claude recommendations...")
+        print(f"DEBUG: Claude reasoning length: {len(claude_reasoning)}")
+        
         # Extract site-specific recommendations from Claude's reasoning
         lines = claude_reasoning.lower().split('\n')
         
@@ -841,104 +860,89 @@ def parse_claude_recommendations(claude_reasoning: str, site_data: Dict) -> Dict
             'texas': 'site_5_texas'
         }
         
-        for line in lines:
-            line = line.strip()
-            
-            # Look for specific allocation percentages
-            for site_name, site_id in site_name_mapping.items():
-                if site_name in line:
-                    if site_id not in allocations:
-                        allocations[site_id] = {}
-                    
-                    # Parse AI inference allocations
-                    if 'allocate' in line and ('premium' in line or 'ai' in line):
-                        if '40%' in line:
-                            allocations[site_id]['gpu_compute'] = 80  # High allocation
-                            allocations[site_id]['ai_focus'] = 40
-                        elif '35%' in line:
-                            allocations[site_id]['gpu_compute'] = 70  # High-medium allocation
-                            allocations[site_id]['ai_focus'] = 35
-                        elif '30%' in line:
-                            allocations[site_id]['gpu_compute'] = 60  # Medium allocation
-                            allocations[site_id]['ai_focus'] = 30
-                        elif '25%' in line:
-                            allocations[site_id]['gpu_compute'] = 50  # Medium-low allocation
-                            allocations[site_id]['ai_focus'] = 25
-                    
-                    # Parse Bitcoin mining allocations
-                    elif ('mining' in line or 'bitcoin' in line) and '%' in line:
-                        if '75%' in line:
-                            allocations[site_id]['mining_focus'] = 45  # High mining
-                            allocations[site_id]['asic_compute'] = 35
-                        elif '65%' in line:
-                            allocations[site_id]['mining_focus'] = 35  # Medium-high mining
-                            allocations[site_id]['asic_compute'] = 30
-                        elif '60%' in line:
-                            allocations[site_id]['mining_focus'] = 30  # Medium mining
-                            allocations[site_id]['asic_compute'] = 25
-                    
-                    # Parse capacity reductions
-                    elif 'reduce' in line and '%' in line:
-                        if '50%' in line:
-                            allocations[site_id]['gpu_compute'] = 25  # Reduced capacity
-                            allocations[site_id]['asic_compute'] = 15
-                        elif '60%' in line:
-                            allocations[site_id]['gpu_compute'] = 30  # Moderate reduction
-                            allocations[site_id]['asic_compute'] = 20
-                    
-                    # Parse increase recommendations
-                    elif 'increase' in line and '%' in line:
-                        if '15%' in line:
-                            allocations[site_id]['gpu_compute'] = 65  # Increased allocation
-                            allocations[site_id]['mining_focus'] = 30
-                        elif '20%' in line:
-                            allocations[site_id]['gpu_compute'] = 70  # Higher increase
-                            allocations[site_id]['mining_focus'] = 35
-        
         # Apply Claude's specific site recommendations from the reasoning
         reasoning_lower = claude_reasoning.lower()
         
+        print(f"DEBUG: Checking for site-specific keywords...")
+        
         # Nordic Iceland - Premium AI hub
-        if 'nordic iceland' in reasoning_lower and 'premium' in reasoning_lower:
-            allocations['site_1_nordic'] = {
-                'gpu_compute': 80, 'ai_focus': 40, 'mining_focus': 30, 'tier_focus': 'premium'
-            }
+        if 'nordic iceland' in reasoning_lower:
+            print(f"DEBUG: Found Nordic Iceland in reasoning")
+            if 'premium' in reasoning_lower or 'ai' in reasoning_lower:
+                allocations['site_1_nordic'] = {
+                    'gpu_compute': 80, 'ai_focus': 40, 'mining_focus': 30, 'tier_focus': 'premium'
+                }
+                print(f"DEBUG: Added Nordic Iceland allocation: {allocations['site_1_nordic']}")
         
         # Norway Oslo - Premium AI hub  
-        if 'norway oslo' in reasoning_lower and 'premium' in reasoning_lower:
-            allocations['site_3_norway'] = {
-                'gpu_compute': 70, 'ai_focus': 35, 'mining_focus': 35, 'tier_focus': 'premium'
-            }
+        if 'norway oslo' in reasoning_lower:
+            print(f"DEBUG: Found Norway Oslo in reasoning")
+            if 'premium' in reasoning_lower or 'ai' in reasoning_lower:
+                allocations['site_3_norway'] = {
+                    'gpu_compute': 70, 'ai_focus': 35, 'mining_focus': 35, 'tier_focus': 'premium'
+                }
+                print(f"DEBUG: Added Norway Oslo allocation: {allocations['site_3_norway']}")
         
         # Canada Vancouver - Standard AI hub
-        if 'canada vancouver' in reasoning_lower and 'standard' in reasoning_lower:
-            allocations['site_2_canada'] = {
-                'gpu_compute': 60, 'ai_focus': 35, 'mining_focus': 35, 'tier_focus': 'standard'
-            }
+        if 'canada vancouver' in reasoning_lower:
+            print(f"DEBUG: Found Canada Vancouver in reasoning")
+            if 'standard' in reasoning_lower or 'ai' in reasoning_lower:
+                allocations['site_2_canada'] = {
+                    'gpu_compute': 60, 'ai_focus': 35, 'mining_focus': 35, 'tier_focus': 'standard'
+                }
+                print(f"DEBUG: Added Canada Vancouver allocation: {allocations['site_2_canada']}")
         
-        # Ireland Dublin - Standard workloads
-        if 'ireland dublin' in reasoning_lower and 'standard' in reasoning_lower:
+        # Singapore - Reduced capacity
+        if 'singapore' in reasoning_lower:
+            print(f"DEBUG: Found Singapore in reasoning")
+            if 'reduce' in reasoning_lower or 'minimal' in reasoning_lower:
+                allocations['site_4_singapore'] = {
+                    'gpu_compute': 25, 'ai_focus': 15, 'asic_compute': 15, 'tier_focus': 'spot'
+                }
+                print(f"DEBUG: Added Singapore allocation: {allocations['site_4_singapore']}")
+        
+        # Texas - Reduced during peak
+        if 'texas' in reasoning_lower:
+            print(f"DEBUG: Found Texas in reasoning")
+            if 'reduce' in reasoning_lower or 'burst' in reasoning_lower:
+                allocations['site_5_texas'] = {
+                    'gpu_compute': 30, 'ai_focus': 20, 'asic_compute': 20, 'tier_focus': 'flexible'
+                }
+                print(f"DEBUG: Added Texas allocation: {allocations['site_5_texas']}")
+        
+        # Add remaining sites with basic allocations based on Claude's overall strategy
+        if 'ireland dublin' in reasoning_lower:
             allocations['site_6_ireland'] = {
                 'gpu_compute': 55, 'ai_focus': 30, 'mining_focus': 25, 'tier_focus': 'standard'
             }
-        
-        # Chile Santiago - Flexible workloads
-        if 'chile santiago' in reasoning_lower and 'flexible' in reasoning_lower:
+            print(f"DEBUG: Added Ireland allocation")
+            
+        if 'chile santiago' in reasoning_lower:
             allocations['site_9_chile'] = {
                 'gpu_compute': 45, 'ai_focus': 25, 'mining_focus': 45, 'tier_focus': 'flexible'
             }
-        
-        # Singapore - Reduced capacity
-        if 'singapore' in reasoning_lower and 'reduce' in reasoning_lower:
-            allocations['site_4_singapore'] = {
-                'gpu_compute': 25, 'ai_focus': 15, 'asic_compute': 15, 'tier_focus': 'spot'
+            print(f"DEBUG: Added Chile allocation")
+            
+        if 'germany berlin' in reasoning_lower:
+            allocations['site_10_germany'] = {
+                'gpu_compute': 50, 'ai_focus': 25, 'mining_focus': 30, 'tier_focus': 'standard'
             }
-        
-        # Texas - Reduced during peak
-        if 'texas' in reasoning_lower and 'reduce' in reasoning_lower:
-            allocations['site_5_texas'] = {
-                'gpu_compute': 30, 'ai_focus': 20, 'asic_compute': 20, 'tier_focus': 'flexible'
+            print(f"DEBUG: Added Germany allocation")
+            
+        if 'japan tokyo' in reasoning_lower:
+            allocations['site_7_japan'] = {
+                'gpu_compute': 40, 'ai_focus': 20, 'mining_focus': 25, 'tier_focus': 'standard'
             }
+            print(f"DEBUG: Added Japan allocation")
+            
+        if 'australia sydney' in reasoning_lower:
+            allocations['site_8_australia'] = {
+                'gpu_compute': 35, 'ai_focus': 18, 'mining_focus': 20, 'tier_focus': 'flexible'
+            }
+            print(f"DEBUG: Added Australia allocation")
+        
+        print(f"DEBUG: Final allocations parsed: {list(allocations.keys())}")
+        print(f"DEBUG: Total sites with allocations: {len(allocations)}")
     
     except Exception as e:
         print(f"Error parsing Claude recommendations: {e}")
@@ -1156,11 +1160,12 @@ async def request_sla(sla_request: SLARequest):
         "compute_units": sla_request.compute_units,
         "duration_hours": sla_request.duration_hours,
         "site_id": optimal_site,
+        "company_name": sla_request.company_name,
         "created_at": datetime.now().isoformat(),
         "expires_at": expiration_time.isoformat(),
         "estimated_revenue": estimated_revenue,
         "status": "active",
-        "claude_optimized": optimal_site in preferred_sites
+        "claude_optimized": optimal_site in preferred_sites,
     }
     
     # Add to active SLAs (in-memory for compatibility)
@@ -1192,7 +1197,8 @@ async def request_sla(sla_request: SLARequest):
         "expires_at": expiration_time.isoformat(),
         "status": "allocated",
         "claude_optimized": optimal_site in preferred_sites,
-        "optimization_bonus": f"{((claude_bonus - 1) * 100):.0f}%" if claude_bonus > 1 else "0%"
+        "optimization_bonus": f"{((claude_bonus - 1) * 100):.0f}%" if claude_bonus > 1 else "0%",
+        "company_name": sla_request.company_name
     }
 
 async def request_sla_fallback(sla_request: SLARequest, estimated_power_mw: float):
@@ -1220,6 +1226,7 @@ async def request_sla_fallback(sla_request: SLARequest, estimated_power_mw: floa
             "compute_units": sla_request.compute_units,
             "duration_hours": sla_request.duration_hours,
             "site_id": site_id,
+            "company_name": sla_request.company_name,
             "created_at": datetime.now().isoformat(),
             "expires_at": expiration_time.isoformat(),
             "estimated_revenue": estimated_revenue,
@@ -1247,7 +1254,8 @@ async def request_sla_fallback(sla_request: SLARequest, estimated_power_mw: floa
             "estimated_revenue": round(estimated_revenue, 2),
             "status": "allocated_fallback",
             "claude_optimized": False,
-            "optimization_bonus": "0%"
+            "optimization_bonus": "0%",
+            "company_name": sla_request.company_name
         }
     
     raise HTTPException(status_code=400, detail="No available capacity for this SLA request")
@@ -1322,7 +1330,9 @@ async def debug_global_state():
         "current_prices_value": global_state.get("current_prices"),
         "has_mara_inventory": bool(global_state.get("mara_inventory")),
         "mara_inventory_keys": list(global_state.get("mara_inventory", {}).keys()) if isinstance(global_state.get("mara_inventory"), dict) else None,
-        "global_state_keys": list(global_state.keys())
+        "global_state_keys": list(global_state.keys()),
+        "site_allocations": global_state.get("site_allocations", {}),
+        "total_revenue": global_state.get("total_revenue", 0)
     }
 
 @app.get("/api/hardware/inventory")
@@ -1447,67 +1457,61 @@ def calculate_global_metrics(sites: List[Dict]) -> Dict:
     }
 
 def calculate_site_workload_allocation(site_id: str, site_inventory: Dict) -> Dict:
-    """Calculate actual workload allocation based on active SLAs and idle mining"""
-    if not site_inventory:
-        return {"gpu_compute": 0, "asic_compute": 0, "air_miners": 0, "hydro_miners": 0, "immersion_miners": 0}
+    """Calculate workload allocation for a site"""
     
-    # Get available hardware for this site
-    available_gpus = site_inventory.get("inference", {}).get("gpu", {}).get("available", 0)
-    available_asics = site_inventory.get("inference", {}).get("asic", {}).get("available", 0)
-    available_air_miners = site_inventory.get("miners", {}).get("air", {}).get("available", 0)
-    available_hydro_miners = site_inventory.get("miners", {}).get("hydro", {}).get("available", 0)
-    available_immersion_miners = site_inventory.get("miners", {}).get("immersion", {}).get("available", 0)
-    
-    # Initialize allocation
-    allocation = {
-        "gpu_compute": 0,
-        "asic_compute": 0, 
-        "air_miners": 0,
-        "hydro_miners": 0,
-        "immersion_miners": 0
-    }
-    
-    # First, allocate resources to active SLAs for this site
-    site_slas = global_state["active_slas"].get(site_id, [])
-    
-    for sla in site_slas:
-        compute_type = sla["compute_type"]
-        compute_units = sla["compute_units"]
+    # First check if Claude has provided optimized allocations
+    if "site_allocations" in global_state and site_id in global_state["site_allocations"]:
+        claude_allocation = global_state["site_allocations"][site_id]
         
-        if compute_type == "gpu" and allocation["gpu_compute"] + compute_units <= available_gpus:
-            allocation["gpu_compute"] += compute_units
-        elif compute_type == "asic" and allocation["asic_compute"] + compute_units <= available_asics:
-            allocation["asic_compute"] += compute_units
-        elif compute_type == "mixed":
-            # Split mixed workload between GPU and ASIC
-            gpu_units = compute_units // 2
-            asic_units = compute_units - gpu_units
-            
-            if allocation["gpu_compute"] + gpu_units <= available_gpus:
-                allocation["gpu_compute"] += gpu_units
-            if allocation["asic_compute"] + asic_units <= available_asics:
-                allocation["asic_compute"] += asic_units
+        # Validate Claude's allocation against hardware limits
+        available_gpu = site_inventory.get("inference", {}).get("gpu", {}).get("available", 0)
+        available_asic = site_inventory.get("inference", {}).get("asic", {}).get("available", 0)
+        
+        # Respect hardware limits while using Claude's recommendations
+        validated_allocation = {
+            "gpu_compute": min(claude_allocation.get("gpu_compute", 0), available_gpu),
+            "asic_compute": min(claude_allocation.get("asic_compute", 0), available_asic),
+            "air_miners": claude_allocation.get("air_miners", 0),
+            "hydro_miners": claude_allocation.get("hydro_miners", 0),
+            "immersion_miners": claude_allocation.get("immersion_miners", 0)
+        }
+        
+        return validated_allocation
     
-    # Second, use remaining hardware for Bitcoin mining (idle mining)
-    remaining_gpus = available_gpus - allocation["gpu_compute"]
-    remaining_asics = available_asics - allocation["asic_compute"]
+    # Fallback to original logic if no Claude allocation
+    total_gpu = site_inventory.get("inference", {}).get("gpu", {}).get("available", 0)
+    total_asic = site_inventory.get("inference", {}).get("asic", {}).get("available", 0)
     
-    # Idle Bitcoin mining allocation - use remaining compute for mining
-    # Convert remaining inference hardware to mining equivalent
-    if remaining_gpus > 0:
-        # Use remaining GPUs for mining (less efficient but still profitable)
-        allocation["air_miners"] = min(available_air_miners, remaining_gpus // 2)  # 2 GPUs per air miner equivalent
+    # Calculate SLA commitments for this site
+    site_sla_commitments = get_active_sla_summary(site_id)
     
-    if remaining_asics > 0:
-        # Use remaining ASICs for mining (more efficient)
-        allocation["hydro_miners"] = min(available_hydro_miners, remaining_asics // 3)  # 3 ASICs per hydro miner equivalent
+    # Reserve capacity for SLA commitments first
+    reserved_gpu = site_sla_commitments.get("gpu_reserved", 0)
+    reserved_asic = site_sla_commitments.get("asic_reserved", 0)
     
-    # Always run some baseline mining on dedicated miners
-    allocation["air_miners"] = max(allocation["air_miners"], min(available_air_miners, available_air_miners // 2))
-    allocation["hydro_miners"] = max(allocation["hydro_miners"], min(available_hydro_miners, available_hydro_miners // 2))
-    allocation["immersion_miners"] = min(available_immersion_miners, available_immersion_miners // 3)  # Premium miners run less frequently
+    # Available capacity after SLA reservations
+    available_gpu = max(0, total_gpu - reserved_gpu)
+    available_asic = max(0, total_asic - reserved_asic)
     
-    return allocation
+    # Distribute remaining capacity between AI inference and mining
+    # Prioritize AI inference (higher revenue per MW)
+    gpu_compute = min(available_gpu, int(available_gpu * 0.7))  # 70% for AI inference
+    asic_compute = min(available_asic, int(available_asic * 0.6))  # 60% for AI inference
+    
+    # Allocate mining capacity based on site efficiency
+    site_config = MULTI_SITE_CONFIG.get(site_id, {})
+    cooling_efficiency = site_config.get("climate", {}).get("cooling_efficiency", 0.5)
+    
+    # More efficient sites get more mining allocation
+    mining_multiplier = cooling_efficiency * 1.5
+    
+    return {
+        "gpu_compute": gpu_compute + reserved_gpu,  # Include SLA reservations
+        "asic_compute": asic_compute + reserved_asic,  # Include SLA reservations
+        "air_miners": int(30 * mining_multiplier),
+        "hydro_miners": int(15 * mining_multiplier),
+        "immersion_miners": int(8 * mining_multiplier)
+    }
 
 def get_active_sla_summary(site_id: str) -> Dict:
     """Get summary of active SLAs for a site"""
@@ -1732,6 +1736,7 @@ async def load_slas_from_database():
                 "compute_units": sla['compute_units'],
                 "duration_hours": sla['duration_hours'],
                 "site_id": sla['site_id'],
+                "company_name": sla.get('company_name', ''),
                 "created_at": sla['created_at'],
                 "expires_at": sla['expires_at'],
                 "estimated_revenue": sla['estimated_revenue'],
